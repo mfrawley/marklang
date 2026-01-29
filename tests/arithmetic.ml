@@ -1,0 +1,3 @@
+# Test: Basic arithmetic operations
+# Expected: 44
+2 + 3 * 4 + 10 / 2 + 25
