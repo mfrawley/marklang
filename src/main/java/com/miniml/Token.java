@@ -3,10 +3,11 @@ package com.miniml;
 public class Token {
     public enum Type {
         INT, FLOAT, STRING, IDENT, 
-        LET, FN, IN, IF, THEN, ELSE, MATCH, WITH, PRINT, JAVA_CALL,
+        LET, FN, IN, IF, THEN, ELSE, MATCH, WITH, PRINT, JAVA_CALL, JAVA_INSTANCE_CALL, IMPORT, DOT,
         PLUS, MINUS, STAR, SLASH, PERCENT,
         EQ, NE, LT, GT, LE, GE,
-        ARROW, LPAREN, RPAREN, SEMICOLON, PIPE,
+        ARROW, LPAREN, RPAREN, SEMICOLON, PIPE, COLON, ASSIGN,
+        TYPE_INT, TYPE_DOUBLE, TYPE_STRING, TYPE_BOOL,
         EOF
     }
 

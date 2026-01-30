@@ -25,6 +25,11 @@
             <artifactId>asm-util</artifactId>
             <version>9.6</version>
         </dependency>
+        <dependency>
+            <groupId>org.jline</groupId>
+            <artifactId>jline</artifactId>
+            <version>3.25.1</version>
+        </dependency>
     </dependencies>
 
     <build>

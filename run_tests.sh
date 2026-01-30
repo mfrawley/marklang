@@ -8,19 +8,46 @@ TOTAL=0
 echo "Running MiniML tests..."
 echo "======================"
 
-for test_file in tests/*.ml; do
+# First compile any modules in tests/modules/
+if [ -d "tests/modules" ]; then
+    java -cp "$COMPILER_CP" com.miniml.Main tests/modules/utils.ml > /dev/null 2>&1
+fi
+
+for test_file in tests/*.ml tests/modules/*.ml; do
+    # Skip utils.ml as it's a dependency module
+    if [[ "$test_file" == "tests/modules/utils.ml" ]]; then
+        continue
+    fi
     TOTAL=$((TOTAL + 1))
     test_name=$(basename "$test_file" .ml)
     
+    # Check if this is a new-style boolean test (no # Expected: line)
     expected=$(grep "# Expected:" "$test_file" | sed 's/# Expected: //')
+    is_bool_test=false
     
     if [ -z "$expected" ]; then
-        echo "❌ $test_name: No expected output specified"
-        FAILED=$((FAILED + 1))
-        continue
+        # Assume it's a boolean test that should output "true"
+        expected="true"
+        is_bool_test=true
     fi
     
-    class_name="${test_name}"
+    # Convert to PascalCase (same logic as Main.java)
+    class_name=""
+    capitalize_next=true
+    for (( i=0; i<${#test_name}; i++ )); do
+        char="${test_name:$i:1}"
+        if [ "$char" = "_" ]; then
+            capitalize_next=true
+        else
+            if [ "$capitalize_next" = true ]; then
+                upper_char=$(echo "$char" | tr '[:lower:]' '[:upper:]')
+                class_name="${class_name}${upper_char}"
+                capitalize_next=false
+            else
+                class_name="${class_name}${char}"
+            fi
+        fi
+    done
     
     java -cp "$COMPILER_CP" com.miniml.Main "$test_file" > /dev/null 2>&1
     
@@ -30,9 +57,7 @@ for test_file in tests/*.ml; do
         continue
     fi
     
-    actual=$(java "$class_name" 2>&1 | head -n 1)
-    
-    rm -f "${class_name}.class"
+    actual=$(java -cp target:tests/modules "$class_name" 2>&1 | head -n 1)
     
     if [ "$actual" = "$expected" ]; then
         echo "✅ $test_name"

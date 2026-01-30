@@ -2,6 +2,7 @@ package com.miniml;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 public class Parser {
     private final List<Token> tokens;
@@ -11,8 +12,142 @@ public class Parser {
         this.tokens = tokens;
     }
 
+    public Module parseModule() {
+        List<String> imports = new ArrayList<>();
+        while (match(Token.Type.IMPORT)) {
+            imports.add(expect(Token.Type.IDENT).value);
+        }
+        
+        List<Module.TopLevel> declarations = new ArrayList<>();
+        while ((peek().type == Token.Type.FN && isTopLevelFn()) || 
+               (peek().type == Token.Type.LET && isTopLevelLet())) {
+            if (peek().type == Token.Type.FN) {
+                declarations.add(parseTopLevelFn());
+            } else {
+                declarations.add(parseTopLevelLet());
+            }
+        }
+        
+        Expr mainExpr = null;
+        if (peek().type != Token.Type.EOF) {
+            mainExpr = expr();
+        }
+        return new Module(imports, declarations, mainExpr);
+    }
+    
+    public Expr parseExpr() {
+        return expr();
+    }
+    
     public Expr parse() {
         return expr();
+    }
+    
+    private boolean isTopLevelFn() {
+        int saved = pos;
+        advance();
+        while (peek().type == Token.Type.IDENT || peek().type == Token.Type.LPAREN) {
+            if (peek().type == Token.Type.LPAREN) {
+                advance();
+                while (peek().type != Token.Type.RPAREN && peek().type != Token.Type.EOF) {
+                    advance();
+                }
+                if (peek().type == Token.Type.RPAREN) {
+                    advance();
+                }
+            } else {
+                advance();
+            }
+        }
+        if (peek().type != Token.Type.ASSIGN) {
+            pos = saved;
+            return false;
+        }
+        advance();
+        boolean result = !containsInKeyword();
+        pos = saved;
+        return result;
+    }
+    
+    private boolean containsInKeyword() {
+        int depth = 0;
+        while (pos < tokens.size()) {
+            Token.Type t = peek().type;
+            if (t == Token.Type.IN && depth == 0) return true;
+            if (t == Token.Type.EOF) return false;
+            if (t == Token.Type.FN || t == Token.Type.LET) depth++;
+            if (t == Token.Type.IN) {
+                depth--;
+                if (depth < 0) return false;
+            }
+            advance();
+        }
+        return false;
+    }
+    
+    private Module.TopLevel parseTopLevelFn() {
+        expect(Token.Type.FN);
+        String name = expect(Token.Type.IDENT).value;
+        List<Module.Param> params = new ArrayList<>();
+        while (peek().type == Token.Type.IDENT || peek().type == Token.Type.LPAREN) {
+            params.add(parseParam());
+        }
+        expect(Token.Type.ASSIGN);
+        Expr body = expr();
+        expect(Token.Type.SEMICOLON);
+        return new Module.TopLevel.FnDecl(name, params, body);
+    }
+    
+    private boolean isTopLevelLet() {
+        int saved = pos;
+        advance();
+        if (peek().type != Token.Type.IDENT) {
+            pos = saved;
+            return false;
+        }
+        advance();
+        if (peek().type != Token.Type.ASSIGN) {
+            pos = saved;
+            return false;
+        }
+        advance();
+        boolean result = !containsInKeyword();
+        pos = saved;
+        return result;
+    }
+    
+    public Module.TopLevel.LetDecl parseTopLevelLet() {
+        expect(Token.Type.LET);
+        String name = expect(Token.Type.IDENT).value;
+        expect(Token.Type.ASSIGN);
+        Expr value = expr();
+        expect(Token.Type.SEMICOLON);
+        return new Module.TopLevel.LetDecl(name, value);
+    }
+    
+    private Module.Param parseParam() {
+        if (match(Token.Type.LPAREN)) {
+            String paramName = expect(Token.Type.IDENT).value;
+            expect(Token.Type.COLON);
+            Type typeAnnotation = parseType();
+            expect(Token.Type.RPAREN);
+            return new Module.Param(paramName, Optional.of(typeAnnotation));
+        } else {
+            String paramName = expect(Token.Type.IDENT).value;
+            return new Module.Param(paramName, Optional.empty());
+        }
+    }
+    
+    private Type parseType() {
+        Token.Type tokenType = peek().type;
+        advance();
+        return switch (tokenType) {
+            case TYPE_INT -> new Type.TInt();
+            case TYPE_DOUBLE -> new Type.TDouble();
+            case TYPE_STRING -> new Type.TString();
+            case TYPE_BOOL -> new Type.TBool();
+            default -> throw new RuntimeException("Expected type annotation");
+        };
     }
 
     private Expr expr() {
@@ -31,12 +166,15 @@ public class Parser {
         if (match(Token.Type.JAVA_CALL)) {
             return javaCallExpr();
         }
+        if (match(Token.Type.JAVA_INSTANCE_CALL)) {
+            return javaInstanceCallExpr();
+        }
         return comparisonExpr();
     }
 
     private Expr letExpr() {
         String name = expect(Token.Type.IDENT).value;
-        expect(Token.Type.EQ);
+        expect(Token.Type.ASSIGN);
         Expr value = expr();
         expect(Token.Type.IN);
         Expr body = expr();
@@ -49,7 +187,7 @@ public class Parser {
         while (peek().type == Token.Type.IDENT) {
             params.add(advance().value);
         }
-        expect(Token.Type.EQ);
+        expect(Token.Type.ASSIGN);
         Expr value = expr();
         expect(Token.Type.IN);
         Expr body = expr();
@@ -82,11 +220,36 @@ public class Parser {
                peek().type != Token.Type.IN &&
                peek().type != Token.Type.THEN &&
                peek().type != Token.Type.ELSE &&
+               peek().type != Token.Type.FN &&
+               peek().type != Token.Type.SEMICOLON &&
                peek().type != Token.Type.RPAREN) {
             args.add(primaryExpr());
         }
         
         return new Expr.JavaCall(className, methodName, args);
+    }
+
+    private Expr javaInstanceCallExpr() {
+        Token classToken = expect(Token.Type.STRING);
+        String className = classToken.value;
+        
+        Token methodToken = expect(Token.Type.STRING);
+        String methodName = methodToken.value;
+        
+        Expr instance = primaryExpr();
+        
+        List<Expr> args = new ArrayList<>();
+        while (peek().type != Token.Type.EOF && 
+               peek().type != Token.Type.IN &&
+               peek().type != Token.Type.THEN &&
+               peek().type != Token.Type.ELSE &&
+               peek().type != Token.Type.FN &&
+               peek().type != Token.Type.SEMICOLON &&
+               peek().type != Token.Type.RPAREN) {
+            args.add(primaryExpr());
+        }
+        
+        return new Expr.JavaInstanceCall(className, methodName, instance, args);
     }
 
     private Expr comparisonExpr() {
@@ -170,7 +333,12 @@ public class Parser {
             return parseString(previous().value);
         }
         if (match(Token.Type.IDENT)) {
-            return new Expr.Var(previous().value);
+            String name = previous().value;
+            if (match(Token.Type.DOT)) {
+                String memberName = expect(Token.Type.IDENT).value;
+                return new Expr.QualifiedVar(name, memberName);
+            }
+            return new Expr.Var(name);
         }
         if (match(Token.Type.LPAREN)) {
             Expr e = expr();
@@ -243,8 +411,30 @@ public class Parser {
 
     private Token expect(Token.Type type) {
         if (peek().type != type) {
+            if (type == Token.Type.IDENT && isReservedKeyword(peek().type)) {
+                throw new RuntimeException("Cannot use '" + peek().value + "' as identifier - it's a reserved keyword");
+            }
             throw new RuntimeException("Expected " + type + " but got " + peek());
         }
         return advance();
+    }
+    
+    private static final java.util.Set<Token.Type> RESERVED_KEYWORDS = java.util.EnumSet.of(
+        Token.Type.LET,
+        Token.Type.IN,
+        Token.Type.IF,
+        Token.Type.THEN,
+        Token.Type.ELSE,
+        Token.Type.FN,
+        Token.Type.TYPE_INT,
+        Token.Type.TYPE_DOUBLE,
+        Token.Type.TYPE_STRING,
+        Token.Type.TYPE_BOOL,
+        Token.Type.IMPORT,
+        Token.Type.PRINT
+    );
+    
+    private boolean isReservedKeyword(Token.Type type) {
+        return RESERVED_KEYWORDS.contains(type);
     }
 }

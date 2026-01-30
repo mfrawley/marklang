@@ -77,6 +77,8 @@ public class Lexer {
             case ')': return new Token(Token.Type.RPAREN, ")", startLine, startColumn);
             case ';': return new Token(Token.Type.SEMICOLON, ";", startLine, startColumn);
             case '|': return new Token(Token.Type.PIPE, "|", startLine, startColumn);
+            case '.': return new Token(Token.Type.DOT, ".", startLine, startColumn);
+            case ':': return new Token(Token.Type.COLON, ":", startLine, startColumn);
             case '-':
                 if (pos < source.length() && source.charAt(pos) == '>') {
                     pos++;
@@ -84,7 +86,13 @@ public class Lexer {
                     return new Token(Token.Type.ARROW, "->", startLine, startColumn);
                 }
                 return new Token(Token.Type.MINUS, "-", startLine, startColumn);
-            case '=': return new Token(Token.Type.EQ, "=", startLine, startColumn);
+            case '=':
+                if (pos < source.length() && source.charAt(pos) == '=') {
+                    pos++;
+                    column++;
+                    return new Token(Token.Type.EQ, "==", startLine, startColumn);
+                }
+                return new Token(Token.Type.ASSIGN, "=", startLine, startColumn);
             case '<':
                 if (pos < source.length() && source.charAt(pos) == '>') {
                     pos++;
@@ -148,6 +156,12 @@ public class Lexer {
             case "with" -> Token.Type.WITH;
             case "print" -> Token.Type.PRINT;
             case "java_call" -> Token.Type.JAVA_CALL;
+            case "java_instance_call" -> Token.Type.JAVA_INSTANCE_CALL;
+            case "import" -> Token.Type.IMPORT;
+            case "int" -> Token.Type.TYPE_INT;
+            case "double" -> Token.Type.TYPE_DOUBLE;
+            case "string" -> Token.Type.TYPE_STRING;
+            case "bool" -> Token.Type.TYPE_BOOL;
             default -> Token.Type.IDENT;
         };
 

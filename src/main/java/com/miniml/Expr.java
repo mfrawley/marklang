@@ -8,6 +8,7 @@ public sealed interface Expr {
     record StringLit(String value) implements Expr {}
     record StringInterp(List<Object> parts) implements Expr {}
     record Var(String name) implements Expr {}
+    record QualifiedVar(String moduleName, String name) implements Expr {}
     record BinOp(Op op, Expr left, Expr right) implements Expr {}
     record If(Expr cond, Expr thenBranch, Expr elseBranch) implements Expr {}
     record Let(String name, Expr value, Expr body) implements Expr {}
@@ -17,6 +18,7 @@ public sealed interface Expr {
     record Sequence(List<Expr> exprs) implements Expr {}
     record Print(Expr value) implements Expr {}
     record JavaCall(String className, String methodName, List<Expr> args) implements Expr {}
+    record JavaInstanceCall(String className, String methodName, Expr instance, List<Expr> args) implements Expr {}
 
     enum Op {
         ADD, SUB, MUL, DIV, MOD,

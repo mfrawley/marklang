@@ -16,10 +16,55 @@ public class Compiler {
     private final Map<String, String> localTypes = new HashMap<>();
     private int nextLocal = 0;
     private int labelCounter = 0;
+    private List<String> imports = new ArrayList<>();
+    private final Map<Expr, Type> typeMap;
+    private final Map<String, Set<Type>> instantiations;
 
     public Compiler(String className) {
+        this(className, new HashMap<>(), new HashMap<>());
+    }
+    
+    public Compiler(String className, Map<Expr, Type> typeMap, Map<String, Set<Type>> instantiations) {
         this.className = className;
         this.cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
+        this.typeMap = typeMap;
+        this.instantiations = instantiations;
+    }
+
+    public byte[] compileModule(Module module) {
+        cw.visit(V17, ACC_PUBLIC, className, null, "java/lang/Object", null);
+        
+        this.imports = module.imports();
+        
+        List<Module.TopLevel.LetDecl> letDecls = new ArrayList<>();
+        
+        for (Module.TopLevel decl : module.declarations()) {
+            if (decl instanceof Module.TopLevel.FnDecl(String name, List<Module.Param> params, Expr body)) {
+                Set<Type> types = instantiations.getOrDefault(name, Set.of());
+                if (types.isEmpty()) {
+                    compileTopLevelFunction(name, params, body, null);
+                } else {
+                    for (Type type : types) {
+                        compileTopLevelFunction(name, params, body, type);
+                    }
+                }
+            } else if (decl instanceof Module.TopLevel.LetDecl letDecl) {
+                letDecls.add(letDecl);
+            }
+        }
+        
+        if (!letDecls.isEmpty()) {
+            compileStaticInitializer(letDecls);
+        }
+        
+        if (module.mainExpr() != null) {
+            compileMainMethod(module.mainExpr());
+        }
+        
+        compileConstructor();
+        
+        cw.visitEnd();
+        return cw.toByteArray();
     }
 
     public byte[] compile(Expr expr) {
@@ -30,6 +75,128 @@ public class Compiler {
 
         cw.visitEnd();
         return cw.toByteArray();
+    }
+    
+    private void compileTopLevelFunction(String name, List<Module.Param> params, Expr body, Type instantiationType) {
+        MethodVisitor prevMv = mv;
+        Map<String, Integer> prevLocals = new HashMap<>(locals);
+        Map<String, String> prevLocalTypes = new HashMap<>(localTypes);
+        int prevNextLocal = nextLocal;
+
+        locals.clear();
+        localTypes.clear();
+        nextLocal = 0;
+        
+        List<String> paramTypes = new ArrayList<>();
+        Type currentType = instantiationType;
+        
+        for (Module.Param param : params) {
+            String paramType = "I";
+            if (currentType instanceof Type.TFun(Type paramT, Type resultT)) {
+                paramType = paramT.toJvmType();
+                currentType = resultT;
+            } else if (param.typeAnnotation().isPresent()) {
+                paramType = param.typeAnnotation().get().toJvmType();
+            }
+            locals.put(param.name(), nextLocal);
+            nextLocal += paramType.equals("D") ? 2 : 1;
+            localTypes.put(param.name(), paramType);
+            paramTypes.add(paramType);
+        }
+        
+        String returnType;
+        if (currentType != null) {
+            returnType = currentType.toJvmType();
+        } else {
+            Type bodyType = typeMap.getOrDefault(body, new Type.TInt());
+            returnType = bodyType.toJvmType();
+        }
+        
+        String methodName = name;
+        if (instantiationType != null) {
+            methodName = name + "$" + getTypeSuffix(instantiationType);
+        }
+        
+        String descriptor = "(" + String.join("", paramTypes) + ")" + returnType;
+        mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, methodName, descriptor, null, null);
+        mv.visitCode();
+
+        compileExpr(body);
+        
+        if (returnType.equals("D")) {
+            mv.visitInsn(DRETURN);
+        } else if (returnType.equals("V")) {
+            mv.visitInsn(RETURN);
+        } else if (returnType.startsWith("L")) {
+            mv.visitInsn(ARETURN);
+        } else {
+            mv.visitInsn(IRETURN);
+        }
+        mv.visitMaxs(0, 0);
+        mv.visitEnd();
+
+        mv = prevMv;
+        locals.clear();
+        locals.putAll(prevLocals);
+        localTypes.clear();
+        localTypes.putAll(prevLocalTypes);
+        nextLocal = prevNextLocal;
+    }
+    
+    private void compileStaticInitializer(List<Module.TopLevel.LetDecl> letDecls) {
+        for (Module.TopLevel.LetDecl letDecl : letDecls) {
+            Type valueType = typeMap.getOrDefault(letDecl.value(), new Type.TInt());
+            String jvmType = valueType.toJvmType();
+            cw.visitField(ACC_PUBLIC | ACC_STATIC | ACC_FINAL, letDecl.name(), jvmType, null, null).visitEnd();
+        }
+        
+        MethodVisitor prevMv = mv;
+        Map<String, Integer> prevLocals = new HashMap<>(locals);
+        Map<String, String> prevLocalTypes = new HashMap<>(localTypes);
+        int prevNextLocal = nextLocal;
+        
+        mv = cw.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null);
+        locals.clear();
+        localTypes.clear();
+        nextLocal = 0;
+        
+        mv.visitCode();
+        for (Module.TopLevel.LetDecl letDecl : letDecls) {
+            Type valueType = typeMap.getOrDefault(letDecl.value(), new Type.TInt());
+            String jvmType = valueType.toJvmType();
+            compileExpr(letDecl.value());
+            mv.visitFieldInsn(PUTSTATIC, className, letDecl.name(), jvmType);
+        }
+        mv.visitInsn(RETURN);
+        mv.visitMaxs(0, 0);
+        mv.visitEnd();
+        
+        mv = prevMv;
+        locals.clear();
+        locals.putAll(prevLocals);
+        localTypes.clear();
+        localTypes.putAll(prevLocalTypes);
+        nextLocal = prevNextLocal;
+    }
+    
+    private String getTypeSuffix(Type type) {
+        if (type instanceof Type.TFun(Type param, Type result)) {
+            String paramSuffix = switch (param) {
+                case Type.TInt() -> "Int";
+                case Type.TDouble() -> "Double";
+                case Type.TString() -> "String";
+                case Type.TBool() -> "Bool";
+                default -> "Generic";
+            };
+            return paramSuffix;
+        }
+        return switch (type) {
+            case Type.TInt() -> "Int";
+            case Type.TDouble() -> "Double";
+            case Type.TString() -> "String";
+            case Type.TBool() -> "Bool";
+            default -> "Generic";
+        };
     }
 
     private void compileConstructor() {
@@ -46,14 +213,44 @@ public class Compiler {
         mv = cw.visitMethod(ACC_PUBLIC | ACC_STATIC, "main", "([Ljava/lang/String;)V", null, null);
         mv.visitCode();
 
+        locals.clear();
+        localTypes.clear();
+        nextLocal = 0;
+        
         compileExpr(expr);
 
-        if (!(expr instanceof Expr.Print)) {
-            mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
-            mv.visitInsn(SWAP);
-            mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(I)V", false);
-        } else {
+        Type exprType = typeMap.getOrDefault(expr, new Type.TUnit());
+        if (exprType instanceof Type.TUnit) {
             mv.visitInsn(POP);
+        } else {
+            String jvmType = exprType.toJvmType();
+            if (jvmType.equals("D")) {
+                mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+                mv.visitInsn(DUP_X2);
+                mv.visitInsn(POP);
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(D)V", false);
+            } else if (exprType instanceof Type.TBool) {
+                Label trueLabel = new Label();
+                Label endLabel = new Label();
+                mv.visitJumpInsn(IFNE, trueLabel);
+                mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+                mv.visitLdcInsn("false");
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+                mv.visitJumpInsn(GOTO, endLabel);
+                mv.visitLabel(trueLabel);
+                mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+                mv.visitLdcInsn("true");
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+                mv.visitLabel(endLabel);
+            } else {
+                mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+                mv.visitInsn(SWAP);
+                if (jvmType.startsWith("L")) {
+                    mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+                } else {
+                    mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(I)V", false);
+                }
+            }
         }
 
         mv.visitInsn(RETURN);
@@ -65,10 +262,7 @@ public class Compiler {
         switch (expr) {
             case Expr.IntLit(int value) -> mv.visitLdcInsn(value);
             
-            case Expr.FloatLit(double value) -> {
-                mv.visitLdcInsn(value);
-                mv.visitInsn(D2I);
-            }
+            case Expr.FloatLit(double value) -> mv.visitLdcInsn(value);
             
             case Expr.StringLit(String value) -> mv.visitLdcInsn(value);
             
@@ -106,8 +300,15 @@ public class Compiler {
             case Expr.Print(Expr value) -> {
                 mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
                 compileExpr(value);
+                Type valueType = typeMap.getOrDefault(value, new Type.TInt());
+                if (value instanceof Expr.Var(String varName)) {
+                    String jvmType = localTypes.getOrDefault(varName, "I");
+                    valueType = jvmType.equals("D") ? new Type.TDouble() : new Type.TInt();
+                }
                 if (value instanceof Expr.StringLit || value instanceof Expr.StringInterp) {
                     mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+                } else if (valueType instanceof Type.TDouble) {
+                    mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(D)V", false);
                 } else {
                     mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(I)V", false);
                 }
@@ -116,27 +317,58 @@ public class Compiler {
             
             case Expr.Var(String name) -> {
                 Integer local = locals.get(name);
-                if (local == null) {
-                    throw new RuntimeException("Undefined variable: " + name);
-                }
-                String type = localTypes.getOrDefault(name, "I");
-                if (type.equals("Ljava/lang/String;")) {
-                    mv.visitVarInsn(ALOAD, local);
+                if (local != null) {
+                    String type = localTypes.getOrDefault(name, "I");
+                    if (type.equals("Ljava/lang/String;")) {
+                        mv.visitVarInsn(ALOAD, local);
+                    } else if (type.equals("D")) {
+                        mv.visitVarInsn(DLOAD, local);
+                    } else {
+                        mv.visitVarInsn(ILOAD, local);
+                    }
                 } else {
-                    mv.visitVarInsn(ILOAD, local);
+                    Type varType = typeMap.getOrDefault(expr, new Type.TInt());
+                    String jvmType = varType.toJvmType();
+                    mv.visitFieldInsn(GETSTATIC, className, name, jvmType);
                 }
+            }
+            
+            case Expr.QualifiedVar(String moduleName, String memberName) -> {
+                String descriptor = "()I";
+                mv.visitMethodInsn(INVOKESTATIC, moduleName, memberName, descriptor, false);
             }
             
             case Expr.BinOp(Expr.Op op, Expr left, Expr right) -> {
                 compileExpr(left);
+                Type leftType = typeMap.getOrDefault(left, new Type.TInt());
+                
                 compileExpr(right);
+                Type rightType = typeMap.getOrDefault(right, new Type.TInt());
+                
+                boolean leftIsDouble = leftType instanceof Type.TDouble;
+                boolean rightIsDouble = rightType instanceof Type.TDouble;
+                boolean isDouble = leftIsDouble || rightIsDouble;
+                boolean isString = leftType instanceof Type.TString || rightType instanceof Type.TString;
+                
+                if (isDouble) {
+                    if (!rightIsDouble) {
+                        mv.visitInsn(I2D);
+                    } else if (!leftIsDouble) {
+                        mv.visitInsn(DUP2_X1);
+                        mv.visitInsn(POP2);
+                        mv.visitInsn(I2D);
+                        mv.visitInsn(DUP2_X2);
+                        mv.visitInsn(POP2);
+                    }
+                }
+                
                 switch (op) {
-                    case ADD -> mv.visitInsn(IADD);
-                    case SUB -> mv.visitInsn(ISUB);
-                    case MUL -> mv.visitInsn(IMUL);
-                    case DIV -> mv.visitInsn(IDIV);
-                    case MOD -> mv.visitInsn(IREM);
-                    case EQ, NE, LT, GT, LE, GE -> compileComparison(op);
+                    case ADD -> mv.visitInsn(isDouble ? DADD : IADD);
+                    case SUB -> mv.visitInsn(isDouble ? DSUB : ISUB);
+                    case MUL -> mv.visitInsn(isDouble ? DMUL : IMUL);
+                    case DIV -> mv.visitInsn(isDouble ? DDIV : IDIV);
+                    case MOD -> mv.visitInsn(isDouble ? DREM : IREM);
+                    case EQ, NE, LT, GT, LE, GE -> compileComparison(op, leftType, rightType);
                 }
             }
             
@@ -158,14 +390,28 @@ public class Compiler {
             
             case Expr.Let(String name, Expr value, Expr body) -> {
                 compileExpr(value);
-                int local = allocLocal(name);
-                if (value instanceof Expr.StringLit || value instanceof Expr.StringInterp) {
+                
+                Type valueType = typeMap.get(value);
+                if (valueType == null) {
+                    valueType = new Type.TInt();
+                }
+                String jvmType = valueType.toJvmType();
+                
+                int local = nextLocal;
+                locals.put(name, local);
+                localTypes.put(name, jvmType);
+                
+                if (jvmType.equals("D")) {
+                    mv.visitVarInsn(DSTORE, local);
+                    nextLocal += 2;
+                } else if (jvmType.startsWith("L")) {
                     mv.visitVarInsn(ASTORE, local);
-                    localTypes.put(name, "Ljava/lang/String;");
+                    nextLocal += 1;
                 } else {
                     mv.visitVarInsn(ISTORE, local);
-                    localTypes.put(name, "I");
+                    nextLocal += 1;
                 }
+                
                 compileExpr(body);
                 freeLocal(name);
             }
@@ -183,11 +429,61 @@ public class Compiler {
             
             case Expr.App(Expr func, List<Expr> args) -> {
                 if (func instanceof Expr.Var(String funcName)) {
+                    List<String> argTypeDescs = new ArrayList<>();
+                    List<Type> argTypes = new ArrayList<>();
                     for (Expr arg : args) {
                         compileExpr(arg);
+                        Type argType = typeMap.getOrDefault(arg, new Type.TInt());
+                        argTypes.add(argType);
+                        argTypeDescs.add(argType.toJvmType());
                     }
-                    String descriptor = "(" + "I".repeat(args.size()) + ")I";
-                    mv.visitMethodInsn(INVOKESTATIC, className, "lambda_" + funcName, descriptor, false);
+                    
+                    String methodName = funcName;
+                    String returnType;
+                    
+                    if (instantiations.containsKey(funcName) && !instantiations.get(funcName).isEmpty()) {
+                        Type firstArgType = argTypes.isEmpty() ? new Type.TInt() : argTypes.get(0);
+                        returnType = firstArgType.toJvmType();
+                        
+                        Type reconstructedType = firstArgType;
+                        for (int i = argTypes.size() - 1; i >= 0; i--) {
+                            reconstructedType = new Type.TFun(argTypes.get(i), reconstructedType);
+                        }
+                        
+                        String suffix = getTypeSuffix(reconstructedType);
+                        methodName = funcName + "$" + suffix;
+                    } else {
+                        methodName = "lambda_" + funcName;
+                        Type appType = typeMap.getOrDefault(expr, new Type.TInt());
+                        returnType = appType.toJvmType();
+                    }
+                    
+                    String descriptor = "(" + String.join("", argTypeDescs) + ")" + returnType;
+                    mv.visitMethodInsn(INVOKESTATIC, className, methodName, descriptor, false);
+                } else if (func instanceof Expr.QualifiedVar(String moduleName, String memberName)) {
+                    List<String> argTypeDescs = new ArrayList<>();
+                    List<Type> argTypes = new ArrayList<>();
+                    for (Expr arg : args) {
+                        compileExpr(arg);
+                        Type argType = typeMap.getOrDefault(arg, new Type.TInt());
+                        argTypes.add(argType);
+                        argTypeDescs.add(argType.toJvmType());
+                    }
+                    
+                    Type appType = typeMap.getOrDefault(expr, new Type.TInt());
+                    String returnType = appType.toJvmType();
+                    
+                    Type firstArgType = argTypes.isEmpty() ? new Type.TInt() : argTypes.get(0);
+                    Type reconstructedType = appType;
+                    for (int i = argTypes.size() - 1; i >= 0; i--) {
+                        reconstructedType = new Type.TFun(argTypes.get(i), reconstructedType);
+                    }
+                    
+                    String suffix = getTypeSuffix(reconstructedType);
+                    String methodName = memberName + "$" + suffix;
+                    
+                    String descriptor = "(" + String.join("", argTypeDescs) + ")" + returnType;
+                    mv.visitMethodInsn(INVOKESTATIC, moduleName, methodName, descriptor, false);
                 } else {
                     throw new RuntimeException("Only named functions can be called for now");
                 }
@@ -202,20 +498,51 @@ public class Compiler {
                 }
             }
             
-            case Expr.JavaCall(String className, String methodName, List<Expr> args) -> {
+            case Expr.JavaCall javaCall -> {
+                String className = javaCall.className();
+                String methodName = javaCall.methodName();
+                List<Expr> args = javaCall.args();
                 String jvmClassName = className.replace('.', '/');
                 
                 for (Expr arg : args) {
                     compileExpr(arg);
                 }
                 
-                String descriptor = inferJavaMethodDescriptor(className, methodName, args);
+                String descriptor = inferJavaMethodDescriptor(javaCall, className, methodName, args);
                 mv.visitMethodInsn(INVOKESTATIC, jvmClassName, methodName, descriptor, false);
+            }
+            
+            case Expr.JavaInstanceCall(String className, String methodName, Expr instance, List<Expr> args) -> {
+                String jvmClassName = className.replace('.', '/');
+                
+                compileExpr(instance);
+                
+                for (Expr arg : args) {
+                    compileExpr(arg);
+                }
+                
+                String descriptor = inferInstanceMethodDescriptor(className, methodName, args);
+                mv.visitMethodInsn(INVOKEVIRTUAL, jvmClassName, methodName, descriptor, false);
             }
         }
     }
     
-    private String inferJavaMethodDescriptor(String className, String methodName, List<Expr> args) {
+    private String inferJavaMethodDescriptor(Expr javaCallExpr, String className, String methodName, List<Expr> args) {
+        StringBuilder desc = new StringBuilder("(");
+
+        for (Expr arg : args) {
+            Type argType = typeMap.getOrDefault(arg, new Type.TInt());
+            desc.append(argType.toJvmType());
+        }
+        desc.append(")");
+        
+        Type returnType = typeMap.getOrDefault(javaCallExpr, new Type.TInt());
+        desc.append(returnType.toJvmType());
+        
+        return desc.toString();
+    }
+    
+    private String inferInstanceMethodDescriptor(String className, String methodName, List<Expr> args) {
         StringBuilder desc = new StringBuilder("(");
         for (Expr arg : args) {
             if (arg instanceof Expr.StringLit || arg instanceof Expr.StringInterp) {
@@ -235,13 +562,14 @@ public class Compiler {
         }
         desc.append(")");
         
-        if (className.equals("java.lang.Math") && 
-            (methodName.equals("sqrt") || methodName.equals("sin") || 
-             methodName.equals("cos") || methodName.equals("tan") ||
-             methodName.equals("log") || methodName.equals("exp"))) {
-            desc.append("D");
-        } else if (className.equals("java.lang.System") && methodName.equals("currentTimeMillis")) {
-            desc.append("J");
+        if (className.equals("java.lang.String")) {
+            if (methodName.equals("length")) {
+                desc.append("I");
+            } else if (methodName.equals("toUpperCase") || methodName.equals("toLowerCase")) {
+                desc.append("Ljava/lang/String;");
+            } else {
+                desc.append("Ljava/lang/String;");
+            }
         } else {
             desc.append("I");
         }
@@ -249,21 +577,57 @@ public class Compiler {
         return desc.toString();
     }
 
-    private void compileComparison(Expr.Op op) {
+    private void compileComparison(Expr.Op op, Type leftType, Type rightType) {
         Label trueLabel = new Label();
         Label endLabel = new Label();
         
-        int opcode = switch (op) {
-            case EQ -> IF_ICMPEQ;
-            case NE -> IF_ICMPNE;
-            case LT -> IF_ICMPLT;
-            case GT -> IF_ICMPGT;
-            case LE -> IF_ICMPLE;
-            case GE -> IF_ICMPGE;
-            default -> throw new RuntimeException("Not a comparison op: " + op);
-        };
+        boolean isString = leftType instanceof Type.TString || rightType instanceof Type.TString;
+        boolean isDouble = leftType instanceof Type.TDouble || rightType instanceof Type.TDouble;
         
-        mv.visitJumpInsn(opcode, trueLabel);
+        if (isString) {
+            if (op == Expr.Op.EQ || op == Expr.Op.NE) {
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "equals", "(Ljava/lang/Object;)Z", false);
+                if (op == Expr.Op.EQ) {
+                    mv.visitJumpInsn(IFNE, trueLabel);
+                } else {
+                    mv.visitJumpInsn(IFEQ, trueLabel);
+                }
+            } else {
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "compareTo", "(Ljava/lang/String;)I", false);
+                int opcode = switch (op) {
+                    case LT -> IFLT;
+                    case GT -> IFGT;
+                    case LE -> IFLE;
+                    case GE -> IFGE;
+                    default -> throw new RuntimeException("Not a comparison op: " + op);
+                };
+                mv.visitJumpInsn(opcode, trueLabel);
+            }
+        } else if (isDouble) {
+            mv.visitInsn(DCMPG);
+            int opcode = switch (op) {
+                case EQ -> IFEQ;
+                case NE -> IFNE;
+                case LT -> IFLT;
+                case GT -> IFGT;
+                case LE -> IFLE;
+                case GE -> IFGE;
+                default -> throw new RuntimeException("Not a comparison op: " + op);
+            };
+            mv.visitJumpInsn(opcode, trueLabel);
+        } else {
+            int opcode = switch (op) {
+                case EQ -> IF_ICMPEQ;
+                case NE -> IF_ICMPNE;
+                case LT -> IF_ICMPLT;
+                case GT -> IF_ICMPGT;
+                case LE -> IF_ICMPLE;
+                case GE -> IF_ICMPGE;
+                default -> throw new RuntimeException("Not a comparison op: " + op);
+            };
+            mv.visitJumpInsn(opcode, trueLabel);
+        }
+        
         mv.visitInsn(ICONST_0);
         mv.visitJumpInsn(GOTO, endLabel);
         mv.visitLabel(trueLabel);
@@ -310,6 +674,59 @@ public class Compiler {
 
     private void freeLocal(String name) {
         locals.remove(name);
+    }
+    
+    private String inferType(Expr expr) {
+        return switch (expr) {
+            case Expr.IntLit i -> "I";
+            case Expr.FloatLit f -> "D";
+            case Expr.StringLit s -> "Ljava/lang/String;";
+            case Expr.StringInterp si -> "Ljava/lang/String;";
+            case Expr.Var(String name) -> localTypes.getOrDefault(name, "I");
+            case Expr.BinOp(Expr.Op op, Expr left, Expr right) -> inferType(left);
+            case Expr.If(Expr cond, Expr thenBranch, Expr elseBranch) -> inferType(thenBranch);
+            case Expr.Let(String n, Expr v, Expr body) -> inferType(body);
+            case Expr.LetRec(String n, List<String> p, Expr v, Expr body) -> inferType(body);
+            case Expr.Print p -> "I";
+            case Expr.Sequence(List<Expr> exprs) -> 
+                exprs.isEmpty() ? "I" : inferType(exprs.get(exprs.size() - 1));
+            case Expr.JavaCall(String className, String methodName, List<Expr> args) -> 
+                inferJavaCallReturnType(className, methodName);
+            case Expr.JavaInstanceCall(String className, String methodName, Expr inst, List<Expr> args) -> 
+                inferJavaInstanceCallReturnType(className, methodName);
+            case Expr.App(Expr func, List<Expr> args) -> {
+                if (func instanceof Expr.Var(String name)) {
+                    yield "I";
+                } else if (func instanceof Expr.QualifiedVar) {
+                    yield "I";
+                }
+                yield "I";
+            }
+            case Expr.QualifiedVar qv -> "I";
+            case Expr.Lambda l -> "I";
+        };
+    }
+    
+    private String inferJavaCallReturnType(String className, String methodName) {
+        if (className.equals("java.lang.Math")) {
+            return switch (methodName) {
+                case "sqrt", "sin", "cos", "tan", "log", "exp", "pow" -> "D";
+                case "abs", "max", "min" -> "I";
+                default -> "I";
+            };
+        }
+        return "I";
+    }
+    
+    private String inferJavaInstanceCallReturnType(String className, String methodName) {
+        if (className.equals("java.lang.String")) {
+            return switch (methodName) {
+                case "length" -> "I";
+                case "toUpperCase", "toLowerCase" -> "Ljava/lang/String;";
+                default -> "Ljava/lang/String;";
+            };
+        }
+        return "I";
     }
 
     public void writeClassFile(String outputPath) throws IOException {
