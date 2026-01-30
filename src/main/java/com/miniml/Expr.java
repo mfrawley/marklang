@@ -19,6 +19,11 @@ public sealed interface Expr {
     record Print(Expr value) implements Expr {}
     record JavaCall(String className, String methodName, List<Expr> args) implements Expr {}
     record JavaInstanceCall(String className, String methodName, Expr instance, List<Expr> args) implements Expr {}
+    record ListLit(List<Expr> elements) implements Expr {}
+    record Cons(Expr head, Expr tail) implements Expr {}
+    record Match(Expr scrutinee, List<MatchCase> cases) implements Expr {}
+
+    record MatchCase(Pattern pattern, Expr body) {}
 
     enum Op {
         ADD, SUB, MUL, DIV, MOD,

@@ -7,6 +7,7 @@ public class Token {
         PLUS, MINUS, STAR, SLASH, PERCENT,
         EQ, NE, LT, GT, LE, GE,
         ARROW, LPAREN, RPAREN, SEMICOLON, PIPE, COLON, ASSIGN,
+        LBRACKET, RBRACKET, COMMA, CONS,
         TYPE_INT, TYPE_DOUBLE, TYPE_STRING, TYPE_BOOL,
         EOF
     }

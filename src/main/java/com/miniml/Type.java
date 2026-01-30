@@ -29,6 +29,13 @@ public sealed interface Type {
         public String toString() { return "Unit"; }
     }
     
+    record TList(Type elementType) implements Type {
+        @Override
+        public String toString() { 
+            return elementType + " list"; 
+        }
+    }
+    
     record TVar(String name) implements Type {
         @Override
         public String toString() { return "'" + name; }
@@ -56,6 +63,7 @@ public sealed interface Type {
             case TString t -> "Ljava/lang/String;";
             case TBool t -> "I";
             case TUnit t -> "V";
+            case TList t -> "Ljava/util/List;";
             case TVar t -> throw new IllegalStateException("Unresolved type variable '" + t.name() + "' during code generation");
             case TFun t -> "Ljava/lang/Object;";
             case TScheme(List<String> vars, Type innerType) -> innerType.toJvmType();

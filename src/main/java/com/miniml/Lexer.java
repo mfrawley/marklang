@@ -78,7 +78,16 @@ public class Lexer {
             case ';': return new Token(Token.Type.SEMICOLON, ";", startLine, startColumn);
             case '|': return new Token(Token.Type.PIPE, "|", startLine, startColumn);
             case '.': return new Token(Token.Type.DOT, ".", startLine, startColumn);
-            case ':': return new Token(Token.Type.COLON, ":", startLine, startColumn);
+            case ',': return new Token(Token.Type.COMMA, ",", startLine, startColumn);
+            case '[': return new Token(Token.Type.LBRACKET, "[", startLine, startColumn);
+            case ']': return new Token(Token.Type.RBRACKET, "]", startLine, startColumn);
+            case ':':
+                if (pos < source.length() && source.charAt(pos) == ':') {
+                    pos++;
+                    column++;
+                    return new Token(Token.Type.CONS, "::", startLine, startColumn);
+                }
+                return new Token(Token.Type.COLON, ":", startLine, startColumn);
             case '-':
                 if (pos < source.length() && source.charAt(pos) == '>') {
                     pos++;

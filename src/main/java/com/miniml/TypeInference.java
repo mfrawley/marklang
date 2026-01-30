@@ -274,6 +274,49 @@ public class TypeInference {
                 }
                 yield inferJavaInstanceCallType(className, methodName);
             }
+            
+            case Expr.ListLit(List<Expr> elements) -> {
+                if (elements.isEmpty()) {
+                    yield new Type.TList(freshVar());
+                }
+                Type elementType = infer(localEnv, elements.get(0));
+                for (int i = 1; i < elements.size(); i++) {
+                    Type elemType = infer(localEnv, elements.get(i));
+                    unify(elementType, elemType);
+                }
+                yield new Type.TList(elementType);
+            }
+            
+            case Expr.Cons(Expr head, Expr tail) -> {
+                Type headType = infer(localEnv, head);
+                Type tailType = infer(localEnv, tail);
+                Type listType = new Type.TList(headType);
+                unify(tailType, listType);
+                yield listType;
+            }
+            
+            case Expr.Match(Expr scrutinee, List<Expr.MatchCase> cases) -> {
+                Type scrutineeType = infer(localEnv, scrutinee);
+                
+                if (cases.isEmpty()) {
+                    throw new TypeException("Match expression must have at least one case");
+                }
+                
+                Type resultType = null;
+                for (Expr.MatchCase matchCase : cases) {
+                    Map<String, Type> patternEnv = new HashMap<>(localEnv);
+                    inferPattern(matchCase.pattern(), scrutineeType, patternEnv);
+                    Type caseType = infer(patternEnv, matchCase.body());
+                    
+                    if (resultType == null) {
+                        resultType = caseType;
+                    } else {
+                        unify(resultType, caseType);
+                    }
+                }
+                
+                yield resultType;
+            }
         };
         
         typeMap.put(expr, type);
@@ -286,6 +329,42 @@ public class TypeInference {
             prunedMap.put(entry.getKey(), prune(entry.getValue()));
         }
         typeMap = prunedMap;
+    }
+    
+    private void inferPattern(Pattern pattern, Type expectedType, Map<String, Type> env) throws TypeException {
+        switch (pattern) {
+            case Pattern.Wildcard() -> {
+            }
+            
+            case Pattern.Var(String name) -> {
+                env.put(name, expectedType);
+            }
+            
+            case Pattern.IntLit(int value) -> {
+                unify(expectedType, new Type.TInt());
+            }
+            
+            case Pattern.BoolLit(boolean value) -> {
+                unify(expectedType, new Type.TBool());
+            }
+            
+            case Pattern.StringLit(String value) -> {
+                unify(expectedType, new Type.TString());
+            }
+            
+            case Pattern.Nil() -> {
+                Type elementType = freshVar();
+                unify(expectedType, new Type.TList(elementType));
+            }
+            
+            case Pattern.Cons(Pattern head, Pattern tail) -> {
+                Type elementType = freshVar();
+                Type listType = new Type.TList(elementType);
+                unify(expectedType, listType);
+                inferPattern(head, elementType, env);
+                inferPattern(tail, listType, env);
+            }
+        }
     }
     
     private Type inferJavaCallType(String className, String methodName) {
@@ -386,6 +465,11 @@ public class TypeInference {
             return;
         }
         
+        if (type1 instanceof Type.TList(Type e1) && type2 instanceof Type.TList(Type e2)) {
+            unify(e1, e2);
+            return;
+        }
+        
         if (type1.getClass().equals(type2.getClass())) {
             return;
         }
@@ -416,6 +500,9 @@ public class TypeInference {
         if (pruned instanceof Type.TFun(Type param, Type result)) {
             return occursInType(var, param) || occursInType(var, result);
         }
+        if (pruned instanceof Type.TList(Type elementType)) {
+            return occursInType(var, elementType);
+        }
         return false;
     }
     
@@ -424,6 +511,8 @@ public class TypeInference {
             case Type.TVar(String name) -> subst.getOrDefault(name, type);
             case Type.TFun(Type param, Type result) -> 
                 new Type.TFun(applySubst(subst, param), applySubst(subst, result));
+            case Type.TList(Type elementType) ->
+                new Type.TList(applySubst(subst, elementType));
             default -> type;
         };
     }

@@ -169,6 +169,9 @@ public class Parser {
         if (match(Token.Type.JAVA_INSTANCE_CALL)) {
             return javaInstanceCallExpr();
         }
+        if (match(Token.Type.MATCH)) {
+            return matchExpr();
+        }
         return comparisonExpr();
     }
 
@@ -252,8 +255,25 @@ public class Parser {
         return new Expr.JavaInstanceCall(className, methodName, instance, args);
     }
 
+    private Expr matchExpr() {
+        Expr scrutinee = expr();
+        expect(Token.Type.WITH);
+        List<Expr.MatchCase> cases = new ArrayList<>();
+        
+        match(Token.Type.PIPE);
+        
+        do {
+            Pattern pattern = parsePattern();
+            expect(Token.Type.ARROW);
+            Expr body = expr();
+            cases.add(new Expr.MatchCase(pattern, body));
+        } while (match(Token.Type.PIPE));
+        
+        return new Expr.Match(scrutinee, cases);
+    }
+
     private Expr comparisonExpr() {
-        Expr left = addExpr();
+        Expr left = consExpr();
         while (true) {
             Token.Type type = peek().type;
             Expr.Op op = switch (type) {
@@ -267,8 +287,17 @@ public class Parser {
             };
             if (op == null) break;
             advance();
-            Expr right = addExpr();
+            Expr right = consExpr();
             left = new Expr.BinOp(op, left, right);
+        }
+        return left;
+    }
+
+    private Expr consExpr() {
+        Expr left = addExpr();
+        if (match(Token.Type.CONS)) {
+            Expr right = consExpr();
+            return new Expr.Cons(left, right);
         }
         return left;
     }
@@ -345,7 +374,63 @@ public class Parser {
             expect(Token.Type.RPAREN);
             return e;
         }
+        if (match(Token.Type.LBRACKET)) {
+            if (match(Token.Type.RBRACKET)) {
+                return new Expr.ListLit(new ArrayList<>());
+            }
+            List<Expr> elements = new ArrayList<>();
+            elements.add(expr());
+            while (match(Token.Type.COMMA)) {
+                elements.add(expr());
+            }
+            expect(Token.Type.RBRACKET);
+            return new Expr.ListLit(elements);
+        }
         throw new RuntimeException("Unexpected token: " + peek());
+    }
+
+    private Pattern parsePattern() {
+        return parseConsPattern();
+    }
+
+    private Pattern parseConsPattern() {
+        Pattern left = parsePrimaryPattern();
+        if (match(Token.Type.CONS)) {
+            Pattern right = parseConsPattern();
+            return new Pattern.Cons(left, right);
+        }
+        return left;
+    }
+
+    private Pattern parsePrimaryPattern() {
+        if (match(Token.Type.INT)) {
+            return new Pattern.IntLit(Integer.parseInt(previous().value));
+        }
+        if (match(Token.Type.STRING)) {
+            return new Pattern.StringLit(previous().value);
+        }
+        if (match(Token.Type.IDENT)) {
+            String name = previous().value;
+            if (name.equals("true")) {
+                return new Pattern.BoolLit(true);
+            }
+            if (name.equals("false")) {
+                return new Pattern.BoolLit(false);
+            }
+            return new Pattern.Var(name);
+        }
+        if (match(Token.Type.LBRACKET)) {
+            if (match(Token.Type.RBRACKET)) {
+                return new Pattern.Nil();
+            }
+            throw new RuntimeException("List literal patterns not yet supported in match");
+        }
+        if (match(Token.Type.LPAREN)) {
+            Pattern p = parsePattern();
+            expect(Token.Type.RPAREN);
+            return p;
+        }
+        throw new RuntimeException("Unexpected pattern token: " + peek());
     }
 
     private Expr parseString(String str) {

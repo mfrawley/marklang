@@ -242,6 +242,10 @@ public class Compiler {
                 mv.visitLdcInsn("true");
                 mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
                 mv.visitLabel(endLabel);
+            } else if (exprType instanceof Type.TList) {
+                mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+                mv.visitInsn(SWAP);
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/Object;)V", false);
             } else {
                 mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
                 mv.visitInsn(SWAP);
@@ -524,6 +528,157 @@ public class Compiler {
                 String descriptor = inferInstanceMethodDescriptor(className, methodName, args);
                 mv.visitMethodInsn(INVOKEVIRTUAL, jvmClassName, methodName, descriptor, false);
             }
+            
+            case Expr.ListLit(List<Expr> elements) -> {
+                mv.visitTypeInsn(NEW, "java/util/ArrayList");
+                mv.visitInsn(DUP);
+                mv.visitMethodInsn(INVOKESPECIAL, "java/util/ArrayList", "<init>", "()V", false);
+                
+                for (Expr elem : elements) {
+                    mv.visitInsn(DUP);
+                    compileExpr(elem);
+                    Type elemType = typeMap.getOrDefault(elem, new Type.TInt());
+                    if (elemType instanceof Type.TInt) {
+                        mv.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
+                    } else if (elemType instanceof Type.TDouble) {
+                        mv.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false);
+                    } else if (elemType instanceof Type.TBool) {
+                        mv.visitMethodInsn(INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false);
+                    }
+                    mv.visitMethodInsn(INVOKEINTERFACE, "java/util/List", "add", "(Ljava/lang/Object;)Z", true);
+                    mv.visitInsn(POP);
+                }
+            }
+            
+            case Expr.Cons(Expr head, Expr tail) -> {
+                mv.visitTypeInsn(NEW, "java/util/ArrayList");
+                mv.visitInsn(DUP);
+                mv.visitMethodInsn(INVOKESPECIAL, "java/util/ArrayList", "<init>", "()V", false);
+                
+                mv.visitInsn(DUP);
+                compileExpr(head);
+                Type headType = typeMap.getOrDefault(head, new Type.TInt());
+                if (headType instanceof Type.TInt) {
+                    mv.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
+                } else if (headType instanceof Type.TDouble) {
+                    mv.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false);
+                } else if (headType instanceof Type.TBool) {
+                    mv.visitMethodInsn(INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false);
+                }
+                mv.visitMethodInsn(INVOKEINTERFACE, "java/util/List", "add", "(Ljava/lang/Object;)Z", true);
+                mv.visitInsn(POP);
+                
+                mv.visitInsn(DUP);
+                compileExpr(tail);
+                mv.visitMethodInsn(INVOKEINTERFACE, "java/util/List", "addAll", "(Ljava/util/Collection;)Z", true);
+                mv.visitInsn(POP);
+            }
+            
+            case Expr.Match(Expr scrutinee, List<Expr.MatchCase> cases) -> {
+                compileExpr(scrutinee);
+                int scrutineeLocal = allocLocal("$scrutinee");
+                mv.visitVarInsn(ASTORE, scrutineeLocal);
+                localTypes.put("$scrutinee", "Ljava/util/List;");
+                
+                Label endLabel = new Label();
+                
+                for (int i = 0; i < cases.size(); i++) {
+                    Expr.MatchCase matchCase = cases.get(i);
+                    Label nextCaseLabel = (i < cases.size() - 1) ? new Label() : null;
+                    
+                    compilePattern(matchCase.pattern(), scrutineeLocal, nextCaseLabel, endLabel);
+                    compileExpr(matchCase.body());
+                    mv.visitJumpInsn(GOTO, endLabel);
+                    
+                    if (nextCaseLabel != null) {
+                        mv.visitLabel(nextCaseLabel);
+                    }
+                }
+                
+                mv.visitLabel(endLabel);
+                freeLocal("$scrutinee");
+            }
+        }
+    }
+    
+    private void compilePattern(Pattern pattern, int scrutineeLocal, Label failLabel, Label endLabel) {
+        switch (pattern) {
+            case Pattern.Wildcard() -> {
+            }
+            
+            case Pattern.Var(String name) -> {
+                mv.visitVarInsn(ALOAD, scrutineeLocal);
+                int varLocal = allocLocal(name);
+                mv.visitVarInsn(ASTORE, varLocal);
+                localTypes.put(name, "Ljava/util/List;");
+            }
+            
+            case Pattern.IntLit(int value) -> {
+                mv.visitVarInsn(ALOAD, scrutineeLocal);
+                mv.visitMethodInsn(INVOKEINTERFACE, "java/util/List", "isEmpty", "()Z", true);
+                if (failLabel != null) {
+                    mv.visitJumpInsn(IFNE, failLabel);
+                }
+                
+                mv.visitVarInsn(ALOAD, scrutineeLocal);
+                mv.visitInsn(ICONST_0);
+                mv.visitMethodInsn(INVOKEINTERFACE, "java/util/List", "get", "(I)Ljava/lang/Object;", true);
+                mv.visitTypeInsn(CHECKCAST, "java/lang/Integer");
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
+                mv.visitLdcInsn(value);
+                if (failLabel != null) {
+                    mv.visitJumpInsn(IF_ICMPNE, failLabel);
+                }
+            }
+            
+            case Pattern.Nil() -> {
+                mv.visitVarInsn(ALOAD, scrutineeLocal);
+                mv.visitMethodInsn(INVOKEINTERFACE, "java/util/List", "isEmpty", "()Z", true);
+                if (failLabel != null) {
+                    mv.visitJumpInsn(IFEQ, failLabel);
+                }
+            }
+            
+            case Pattern.Cons(Pattern head, Pattern tail) -> {
+                mv.visitVarInsn(ALOAD, scrutineeLocal);
+                mv.visitMethodInsn(INVOKEINTERFACE, "java/util/List", "isEmpty", "()Z", true);
+                if (failLabel != null) {
+                    mv.visitJumpInsn(IFNE, failLabel);
+                } else {
+                    Label matchOk = new Label();
+                    mv.visitJumpInsn(IFEQ, matchOk);
+                    mv.visitTypeInsn(NEW, "java/lang/RuntimeException");
+                    mv.visitInsn(DUP);
+                    mv.visitLdcInsn("Match failure: expected non-empty list");
+                    mv.visitMethodInsn(INVOKESPECIAL, "java/lang/RuntimeException", "<init>", "(Ljava/lang/String;)V", false);
+                    mv.visitInsn(ATHROW);
+                    mv.visitLabel(matchOk);
+                }
+                
+                if (head instanceof Pattern.Var(String headName)) {
+                    mv.visitVarInsn(ALOAD, scrutineeLocal);
+                    mv.visitInsn(ICONST_0);
+                    mv.visitMethodInsn(INVOKEINTERFACE, "java/util/List", "get", "(I)Ljava/lang/Object;", true);
+                    mv.visitTypeInsn(CHECKCAST, "java/lang/Integer");
+                    mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
+                    int headVarLocal = allocLocal(headName);
+                    mv.visitVarInsn(ISTORE, headVarLocal);
+                    localTypes.put(headName, "I");
+                }
+                
+                if (tail instanceof Pattern.Var(String tailName)) {
+                    mv.visitVarInsn(ALOAD, scrutineeLocal);
+                    mv.visitInsn(ICONST_1);
+                    mv.visitVarInsn(ALOAD, scrutineeLocal);
+                    mv.visitMethodInsn(INVOKEINTERFACE, "java/util/List", "size", "()I", true);
+                    mv.visitMethodInsn(INVOKEINTERFACE, "java/util/List", "subList", "(II)Ljava/util/List;", true);
+                    int tailVarLocal = allocLocal(tailName);
+                    mv.visitVarInsn(ASTORE, tailVarLocal);
+                    localTypes.put(tailName, "Ljava/util/List;");
+                }
+            }
+            
+            default -> throw new RuntimeException("Pattern not yet implemented: " + pattern);
         }
     }
     
@@ -702,6 +857,10 @@ public class Compiler {
                 }
                 yield "I";
             }
+            case Expr.ListLit l -> "Ljava/util/List;";
+            case Expr.Cons c -> "Ljava/util/List;";
+            case Expr.Match(Expr scrutinee, List<Expr.MatchCase> cases) -> 
+                cases.isEmpty() ? "I" : inferType(cases.get(0).body());
             case Expr.QualifiedVar qv -> "I";
             case Expr.Lambda l -> "I";
         };
