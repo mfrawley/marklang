@@ -6,7 +6,7 @@ fn min (a: double) (b: double): double = if a < b then a else b;
 
 fn square (x: double): double = x * x;
 
-fn sqrt (x: double) : double= java_call "java.lang.Math" "sqrt" x;
+fn sqrt (x: double) : double = java_call "java.lang.Math" "sqrt" x;
 
 fn sin (x: double) : double = java_call "java.lang.Math" "sin" x;
 

@@ -81,6 +81,13 @@ public class Lexer {
             case ',': return new Token(Token.Type.COMMA, ",", startLine, startColumn);
             case '[': return new Token(Token.Type.LBRACKET, "[", startLine, startColumn);
             case ']': return new Token(Token.Type.RBRACKET, "]", startLine, startColumn);
+            case '!':
+                if (pos < source.length() && source.charAt(pos) == '=') {
+                    pos++;
+                    column++;
+                    return new Token(Token.Type.NE, "!=", startLine, startColumn);
+                }
+                throw new RuntimeException("Unexpected character: !");
             case ':':
                 if (pos < source.length() && source.charAt(pos) == ':') {
                     pos++;
