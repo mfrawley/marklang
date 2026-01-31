@@ -50,8 +50,21 @@ for test_file in tests/*.ml; do
     done
     
     compile_output=$(java -cp "$COMPILER_CP" com.miniml.Main "$test_file" 2>&1)
+    compile_exit_code=$?
     
-    if [ $? -ne 0 ]; then
+    # Check if this test expects a compilation error
+    if grep -q "# Expected: Type error" "$test_file" || grep -q "# Expected: Compilation error" "$test_file"; then
+        if [ $compile_exit_code -ne 0 ]; then
+            echo "✅ $test_name (expected compilation failure)"
+            PASSED=$((PASSED + 1))
+        else
+            echo "❌ $test_name: Expected compilation to fail, but it succeeded"
+            FAILED=$((FAILED + 1))
+        fi
+        continue
+    fi
+    
+    if [ $compile_exit_code -ne 0 ]; then
         echo "❌ $test_name: Compilation failed"
         echo "   Error: $compile_output"
         FAILED=$((FAILED + 1))

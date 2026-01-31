@@ -346,61 +346,112 @@ public class Compiler {
                 mv.visitMethodInsn(INVOKESTATIC, moduleName, memberName, descriptor, false);
             }
             
-            case Expr.BinOp(Expr.Op op, Expr left, Expr right) -> {
-                compileExpr(left);
-                Type leftType = typeMap.getOrDefault(left, new Type.TInt());
-                
-                if (left instanceof Expr.Var(String varName) && localTypes.get(varName) != null && localTypes.get(varName).equals("Ljava/lang/Object;")) {
-                    if (leftType instanceof Type.TInt) {
-                        mv.visitTypeInsn(CHECKCAST, "java/lang/Integer");
-                        mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
-                    } else if (leftType instanceof Type.TDouble) {
-                        mv.visitTypeInsn(CHECKCAST, "java/lang/Double");
-                        mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false);
-                    } else if (leftType instanceof Type.TString) {
-                        mv.visitTypeInsn(CHECKCAST, "java/lang/String");
-                    }
-                }
-                
-                compileExpr(right);
-                Type rightType = typeMap.getOrDefault(right, new Type.TInt());
-                
-                if (right instanceof Expr.Var(String varName) && localTypes.get(varName) != null && localTypes.get(varName).equals("Ljava/lang/Object;")) {
-                    if (rightType instanceof Type.TInt) {
-                        mv.visitTypeInsn(CHECKCAST, "java/lang/Integer");
-                        mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
-                    } else if (rightType instanceof Type.TDouble) {
-                        mv.visitTypeInsn(CHECKCAST, "java/lang/Double");
-                        mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false);
-                    } else if (rightType instanceof Type.TString) {
-                        mv.visitTypeInsn(CHECKCAST, "java/lang/String");
-                    }
-                }
-                
-                boolean leftIsDouble = leftType instanceof Type.TDouble;
-                boolean rightIsDouble = rightType instanceof Type.TDouble;
-                boolean isDouble = leftIsDouble || rightIsDouble;
-                boolean isString = leftType instanceof Type.TString || rightType instanceof Type.TString;
-                
-                if (isDouble) {
-                    if (!rightIsDouble) {
-                        mv.visitInsn(I2D);
-                    } else if (!leftIsDouble) {
-                        mv.visitInsn(DUP2_X1);
-                        mv.visitInsn(POP2);
-                        mv.visitInsn(I2D);
-                        mv.visitInsn(DUP2_X2);
-                        mv.visitInsn(POP2);
-                    }
-                }
-                
+            case Expr.UnaryOp(Expr.UnOp op, Expr operand) -> {
+                compileExpr(operand);
+                Type operandType = typeMap.getOrDefault(operand, new Type.TInt());
                 switch (op) {
-                    case ADD -> mv.visitInsn(isDouble ? DADD : IADD);
-                    case SUB -> mv.visitInsn(isDouble ? DSUB : ISUB);
-                    case MUL -> mv.visitInsn(isDouble ? DMUL : IMUL);
-                    case DIV -> mv.visitInsn(isDouble ? DDIV : IDIV);
-                    case MOD -> mv.visitInsn(isDouble ? DREM : IREM);
-                    case EQ, NE, LT, GT, LE, GE -> compileComparison(op, leftType, rightType);
+                    case NEG -> {
+                        if (operandType instanceof Type.TDouble) {
+                            mv.visitInsn(DNEG);
+                        } else {
+                            mv.visitInsn(INEG);
+                        }
+                    }
+                    case NOT -> {
+                        Label trueLabel = new Label();
+                        Label endLabel = new Label();
+                        mv.visitJumpInsn(IFEQ, trueLabel);
+                        mv.visitInsn(ICONST_0);
+                        mv.visitJumpInsn(GOTO, endLabel);
+                        mv.visitLabel(trueLabel);
+                        mv.visitInsn(ICONST_1);
+                        mv.visitLabel(endLabel);
+                    }
+                }
+            }
+            
+            case Expr.BinOp(Expr.Op op, Expr left, Expr right) -> {
+                if (op == Expr.Op.AND) {
+                    Label falseLabel = new Label();
+                    Label endLabel = new Label();
+                    compileExpr(left);
+                    mv.visitJumpInsn(IFEQ, falseLabel);
+                    compileExpr(right);
+                    mv.visitJumpInsn(IFEQ, falseLabel);
+                    mv.visitInsn(ICONST_1);
+                    mv.visitJumpInsn(GOTO, endLabel);
+                    mv.visitLabel(falseLabel);
+                    mv.visitInsn(ICONST_0);
+                    mv.visitLabel(endLabel);
+                } else if (op == Expr.Op.OR) {
+                    Label trueLabel = new Label();
+                    Label endLabel = new Label();
+                    compileExpr(left);
+                    mv.visitJumpInsn(IFNE, trueLabel);
+                    compileExpr(right);
+                    mv.visitJumpInsn(IFNE, trueLabel);
+                    mv.visitInsn(ICONST_0);
+                    mv.visitJumpInsn(GOTO, endLabel);
+                    mv.visitLabel(trueLabel);
+                    mv.visitInsn(ICONST_1);
+                    mv.visitLabel(endLabel);
+                } else {
+                    compileExpr(left);
+                    Type leftType = typeMap.getOrDefault(left, new Type.TInt());
+                    
+                    if (left instanceof Expr.Var(String varName) && localTypes.get(varName) != null && localTypes.get(varName).equals("Ljava/lang/Object;")) {
+                        if (leftType instanceof Type.TInt) {
+                            mv.visitTypeInsn(CHECKCAST, "java/lang/Integer");
+                            mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
+                        } else if (leftType instanceof Type.TDouble) {
+                            mv.visitTypeInsn(CHECKCAST, "java/lang/Double");
+                            mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false);
+                        } else if (leftType instanceof Type.TString) {
+                            mv.visitTypeInsn(CHECKCAST, "java/lang/String");
+                        }
+                    }
+                    
+                    compileExpr(right);
+                    Type rightType = typeMap.getOrDefault(right, new Type.TInt());
+                    
+                    if (right instanceof Expr.Var(String varName) && localTypes.get(varName) != null && localTypes.get(varName).equals("Ljava/lang/Object;")) {
+                        if (rightType instanceof Type.TInt) {
+                            mv.visitTypeInsn(CHECKCAST, "java/lang/Integer");
+                            mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
+                        } else if (rightType instanceof Type.TDouble) {
+                            mv.visitTypeInsn(CHECKCAST, "java/lang/Double");
+                            mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false);
+                        } else if (rightType instanceof Type.TString) {
+                            mv.visitTypeInsn(CHECKCAST, "java/lang/String");
+                        }
+                    }
+                    
+                    boolean leftIsDouble = leftType instanceof Type.TDouble;
+                    boolean rightIsDouble = rightType instanceof Type.TDouble;
+                    boolean isDouble = leftIsDouble || rightIsDouble;
+                    boolean isString = leftType instanceof Type.TString || rightType instanceof Type.TString;
+                    
+                    if (isDouble) {
+                        if (!rightIsDouble) {
+                            mv.visitInsn(I2D);
+                        } else if (!leftIsDouble) {
+                            mv.visitInsn(DUP2_X1);
+                            mv.visitInsn(POP2);
+                            mv.visitInsn(I2D);
+                            mv.visitInsn(DUP2_X2);
+                            mv.visitInsn(POP2);
+                        }
+                    }
+                    
+                    switch (op) {
+                        case ADD -> mv.visitInsn(isDouble ? DADD : IADD);
+                        case SUB -> mv.visitInsn(isDouble ? DSUB : ISUB);
+                        case MUL -> mv.visitInsn(isDouble ? DMUL : IMUL);
+                        case DIV -> mv.visitInsn(isDouble ? DDIV : IDIV);
+                        case MOD -> mv.visitInsn(isDouble ? DREM : IREM);
+                        case EQ, NE, LT, GT, LE, GE -> compileComparison(op, leftType, rightType);
+                        default -> throw new RuntimeException("Unexpected operator: " + op);
+                    }
                 }
             }
             
@@ -954,6 +1005,7 @@ public class Compiler {
             case Expr.StringLit s -> "Ljava/lang/String;";
             case Expr.StringInterp si -> "Ljava/lang/String;";
             case Expr.Var(String name) -> localTypes.getOrDefault(name, "I");
+            case Expr.UnaryOp(Expr.UnOp op, Expr operand) -> inferType(operand);
             case Expr.BinOp(Expr.Op op, Expr left, Expr right) -> inferType(left);
             case Expr.If(Expr cond, Expr thenBranch, Expr elseBranch) -> inferType(thenBranch);
             case Expr.Let(String n, Expr v, Expr body) -> inferType(body);

@@ -7,9 +7,14 @@ public class TypeInference {
     private Map<Expr, Type> typeMap = new HashMap<>();
     private Map<String, Type> env = new HashMap<>();
     private Map<String, Set<Type>> instantiations = new HashMap<>();
+    private String currentFilename = "<unknown>";
     
     public TypeInference() {
         initializeBuiltins();
+    }
+
+    public void setFilename(String filename) {
+        this.currentFilename = filename;
     }
     
     public Map<String, Set<Type>> getInstantiations() {
@@ -261,6 +266,21 @@ public class TypeInference {
                 yield thenType;
             }
             
+            case Expr.UnaryOp(Expr.UnOp op, Expr operand) -> {
+                Type operandType = infer(localEnv, operand);
+                yield switch (op) {
+                    case NEG -> {
+                        Type numericType = freshNumeric();
+                        unify(operandType, numericType);
+                        yield numericType;
+                    }
+                    case NOT -> {
+                        unify(operandType, new Type.TBool());
+                        yield new Type.TBool();
+                    }
+                };
+            }
+
             case Expr.BinOp(Expr.Op op, Expr left, Expr right) -> {
                 Type leftType = infer(localEnv, left);
                 Type rightType = infer(localEnv, right);
@@ -274,6 +294,11 @@ public class TypeInference {
                     }
                     case EQ, NE, LT, GT, LE, GE -> {
                         unify(leftType, rightType);
+                        yield new Type.TBool();
+                    }
+                    case AND, OR -> {
+                        unify(leftType, new Type.TBool());
+                        unify(rightType, new Type.TBool());
                         yield new Type.TBool();
                     }
                 };
@@ -585,7 +610,7 @@ public class TypeInference {
             return;
         }
         
-        throw new TypeException("Type mismatch: cannot unify " + type1 + " with " + type2);
+        throw new TypeException("Type mismatch: cannot unify " + type1 + " with " + type2, currentFilename, null);
     }
     
     private Map<String, Type> substitutions = new HashMap<>();
@@ -671,8 +696,25 @@ public class TypeInference {
     }
     
     public static class TypeException extends Exception {
-        public TypeException(String message) {
+        private final String filename;
+        private final Expr expr;
+
+        public TypeException(String message, String filename, Expr expr) {
             super(message);
+            this.filename = filename;
+            this.expr = expr;
+        }
+
+        public TypeException(String message) {
+            this(message, "<unknown>", null);
+        }
+
+        public String getFilename() {
+            return filename;
+        }
+
+        public Expr getExpr() {
+            return expr;
         }
     }
 }

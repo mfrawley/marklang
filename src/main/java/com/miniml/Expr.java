@@ -10,6 +10,7 @@ public sealed interface Expr {
     record StringInterp(List<Object> parts) implements Expr {}
     record Var(String name) implements Expr {}
     record QualifiedVar(String moduleName, String name) implements Expr {}
+    record UnaryOp(UnOp op, Expr operand) implements Expr {}
     record BinOp(Op op, Expr left, Expr right) implements Expr {}
     record If(Expr cond, Expr thenBranch, Expr elseBranch) implements Expr {}
     record Let(String name, Expr value, Expr body) implements Expr {}
@@ -31,6 +32,11 @@ public sealed interface Expr {
 
     enum Op {
         ADD, SUB, MUL, DIV, MOD,
-        EQ, NE, LT, GT, LE, GE
+        EQ, NE, LT, GT, LE, GE,
+        AND, OR
+    }
+
+    enum UnOp {
+        NEG, NOT
     }
 }

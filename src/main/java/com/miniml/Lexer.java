@@ -82,7 +82,20 @@ public class Lexer {
             case '(': return new Token(Token.Type.LPAREN, "(", startLine, startColumn);
             case ')': return new Token(Token.Type.RPAREN, ")", startLine, startColumn);
             case ';': return new Token(Token.Type.SEMICOLON, ";", startLine, startColumn);
-            case '|': return new Token(Token.Type.PIPE, "|", startLine, startColumn);
+            case '|':
+                if (pos < source.length() && source.charAt(pos) == '|') {
+                    pos++;
+                    column++;
+                    return new Token(Token.Type.OR, "||", startLine, startColumn);
+                }
+                return new Token(Token.Type.PIPE, "|", startLine, startColumn);
+            case '&':
+                if (pos < source.length() && source.charAt(pos) == '&') {
+                    pos++;
+                    column++;
+                    return new Token(Token.Type.AND, "&&", startLine, startColumn);
+                }
+                throw new LexerException("Unexpected character '&'", filename, startLine, startColumn);
             case '.': return new Token(Token.Type.DOT, ".", startLine, startColumn);
             case ',': return new Token(Token.Type.COMMA, ",", startLine, startColumn);
             case '[': return new Token(Token.Type.LBRACKET, "[", startLine, startColumn);

@@ -181,7 +181,25 @@ public class Parser {
         if (match(Token.Type.MATCH)) {
             return matchExpr();
         }
-        return comparisonExpr();
+        return orExpr();
+    }
+
+    private Expr orExpr() {
+        Expr left = andExpr();
+        while (match(Token.Type.OR)) {
+            Expr right = andExpr();
+            left = new Expr.BinOp(Expr.Op.OR, left, right);
+        }
+        return left;
+    }
+
+    private Expr andExpr() {
+        Expr left = comparisonExpr();
+        while (match(Token.Type.AND)) {
+            Expr right = comparisonExpr();
+            left = new Expr.BinOp(Expr.Op.AND, left, right);
+        }
+        return left;
     }
 
     private Expr letExpr() {
@@ -328,7 +346,7 @@ public class Parser {
     }
 
     private Expr mulExpr() {
-        Expr left = appExpr();
+        Expr left = unaryExpr();
         while (true) {
             Expr.Op op = switch (peek().type) {
                 case STAR -> Expr.Op.MUL;
@@ -338,10 +356,18 @@ public class Parser {
             };
             if (op == null) break;
             advance();
-            Expr right = appExpr();
+            Expr right = unaryExpr();
             left = new Expr.BinOp(op, left, right);
         }
         return left;
+    }
+
+    private Expr unaryExpr() {
+        if (match(Token.Type.MINUS)) {
+            Expr operand = unaryExpr();
+            return new Expr.UnaryOp(Expr.UnOp.NEG, operand);
+        }
+        return appExpr();
     }
 
     private Expr appExpr() {

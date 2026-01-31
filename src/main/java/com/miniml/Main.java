@@ -35,11 +35,13 @@ public class Main {
             Module module = parser.parseModule();
             
             TypeInference typeInf = new TypeInference();
+            typeInf.setFilename(sourceFile);
             try {
                 typeInf.inferModule(module);
                 TypeDumper.dumpModule(module, typeInf.getTypeMap(), typeInf.getInstantiations());
             } catch (TypeInference.TypeException e) {
-                System.err.println("Type error: " + e.getMessage());
+                String message = e.getFilename() + ": " + e.getMessage();
+                System.err.println("Type error: " + message);
                 System.exit(1);
             }
             
