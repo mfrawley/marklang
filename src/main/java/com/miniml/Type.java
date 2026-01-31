@@ -36,6 +36,13 @@ public sealed interface Type {
         }
     }
     
+    record TResult(Type okType, Type errorType) implements Type {
+        @Override
+        public String toString() {
+            return "result<" + okType + ", " + errorType + ">";
+        }
+    }
+    
     record TVar(String name) implements Type {
         @Override
         public String toString() { return "'" + name; }
@@ -67,8 +74,9 @@ public sealed interface Type {
             case TDouble t -> "D";
             case TString t -> "Ljava/lang/String;";
             case TBool t -> "I";
-            case TUnit t -> "V";
+            case TUnit t -> "Lcom/miniml/Unit;";
             case TList t -> "Ljava/util/List;";
+            case TResult t -> "Lcom/miniml/Result;";
             case TVar t -> throw new IllegalStateException("Unresolved type variable '" + t.name() + "' during code generation");
             case TNumeric t -> throw new IllegalStateException("Unresolved numeric type variable '" + t.name() + "' during code generation");
             case TFun t -> "Ljava/lang/Object;";

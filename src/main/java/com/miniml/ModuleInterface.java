@@ -65,6 +65,7 @@ public class ModuleInterface {
             case Type.TString() -> "string";
             case Type.TUnit() -> "unit";
             case Type.TList(Type elementType) -> typeToString(elementType) + " list";
+            case Type.TResult(Type okType, Type errorType) -> "result<" + typeToString(okType) + ", " + typeToString(errorType) + ">";
             case Type.TFun(Type param, Type result) -> {
                 String paramStr = param instanceof Type.TFun ? "(" + typeToString(param) + ")" : typeToString(param);
                 yield paramStr + " -> " + typeToString(result);

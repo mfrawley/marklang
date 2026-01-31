@@ -264,9 +264,13 @@ public class Compiler {
 
     private void compileExpr(Expr expr) {
         switch (expr) {
+            case Expr.Unit() -> mv.visitFieldInsn(GETSTATIC, "com/miniml/Unit", "INSTANCE", "Lcom/miniml/Unit;");
+            
             case Expr.IntLit(int value) -> mv.visitLdcInsn(value);
             
             case Expr.FloatLit(double value) -> mv.visitLdcInsn(value);
+            
+            case Expr.BoolLit(boolean value) -> mv.visitInsn(value ? ICONST_1 : ICONST_0);
             
             case Expr.StringLit(String value) -> mv.visitLdcInsn(value);
             
@@ -323,10 +327,10 @@ public class Compiler {
                 Integer local = locals.get(name);
                 if (local != null) {
                     String type = localTypes.getOrDefault(name, "I");
-                    if (type.equals("Ljava/lang/String;")) {
-                        mv.visitVarInsn(ALOAD, local);
-                    } else if (type.equals("D")) {
+                    if (type.equals("D")) {
                         mv.visitVarInsn(DLOAD, local);
+                    } else if (type.startsWith("L") || type.startsWith("[")) {
+                        mv.visitVarInsn(ALOAD, local);
                     } else {
                         mv.visitVarInsn(ILOAD, local);
                     }
@@ -346,8 +350,32 @@ public class Compiler {
                 compileExpr(left);
                 Type leftType = typeMap.getOrDefault(left, new Type.TInt());
                 
+                if (left instanceof Expr.Var(String varName) && localTypes.get(varName) != null && localTypes.get(varName).equals("Ljava/lang/Object;")) {
+                    if (leftType instanceof Type.TInt) {
+                        mv.visitTypeInsn(CHECKCAST, "java/lang/Integer");
+                        mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
+                    } else if (leftType instanceof Type.TDouble) {
+                        mv.visitTypeInsn(CHECKCAST, "java/lang/Double");
+                        mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false);
+                    } else if (leftType instanceof Type.TString) {
+                        mv.visitTypeInsn(CHECKCAST, "java/lang/String");
+                    }
+                }
+                
                 compileExpr(right);
                 Type rightType = typeMap.getOrDefault(right, new Type.TInt());
+                
+                if (right instanceof Expr.Var(String varName) && localTypes.get(varName) != null && localTypes.get(varName).equals("Ljava/lang/Object;")) {
+                    if (rightType instanceof Type.TInt) {
+                        mv.visitTypeInsn(CHECKCAST, "java/lang/Integer");
+                        mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
+                    } else if (rightType instanceof Type.TDouble) {
+                        mv.visitTypeInsn(CHECKCAST, "java/lang/Double");
+                        mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false);
+                    } else if (rightType instanceof Type.TString) {
+                        mv.visitTypeInsn(CHECKCAST, "java/lang/String");
+                    }
+                }
                 
                 boolean leftIsDouble = leftType instanceof Type.TDouble;
                 boolean rightIsDouble = rightType instanceof Type.TDouble;
@@ -538,6 +566,24 @@ public class Compiler {
                 }
             }
             
+            case Expr.Ok(Expr value) -> {
+                mv.visitTypeInsn(NEW, "com/miniml/Result$Ok");
+                mv.visitInsn(DUP);
+                compileExpr(value);
+                Type valueType = typeMap.getOrDefault(value, new Type.TInt());
+                boxIfNeeded(valueType);
+                mv.visitMethodInsn(INVOKESPECIAL, "com/miniml/Result$Ok", "<init>", "(Ljava/lang/Object;)V", false);
+            }
+            
+            case Expr.Error(Expr error) -> {
+                mv.visitTypeInsn(NEW, "com/miniml/Result$Error");
+                mv.visitInsn(DUP);
+                compileExpr(error);
+                Type errorType = typeMap.getOrDefault(error, new Type.TString());
+                boxIfNeeded(errorType);
+                mv.visitMethodInsn(INVOKESPECIAL, "com/miniml/Result$Error", "<init>", "(Ljava/lang/Object;)V", false);
+            }
+            
             case Expr.Cons(Expr head, Expr tail) -> {
                 mv.visitTypeInsn(NEW, "java/util/ArrayList");
                 mv.visitInsn(DUP);
@@ -566,30 +612,42 @@ public class Compiler {
                 compileExpr(scrutinee);
                 int scrutineeLocal = allocLocal("$scrutinee");
                 mv.visitVarInsn(ASTORE, scrutineeLocal);
-                localTypes.put("$scrutinee", "Ljava/util/List;");
+                String scrutineeJvmType = inferType(scrutinee);
+                localTypes.put("$scrutinee", scrutineeJvmType);
                 
                 Label endLabel = new Label();
+                int savedNextLocal = nextLocal;
                 
                 for (int i = 0; i < cases.size(); i++) {
                     Expr.MatchCase matchCase = cases.get(i);
                     Label nextCaseLabel = (i < cases.size() - 1) ? new Label() : null;
                     
-                    compilePattern(matchCase.pattern(), scrutineeLocal, nextCaseLabel, endLabel);
+                    Map<String, Integer> savedLocals = new HashMap<>(locals);
+                    Map<String, String> savedLocalTypes = new HashMap<>(localTypes);
+                    nextLocal = savedNextLocal;
+                    
+                    compilePattern(matchCase.pattern(), scrutinee, scrutineeLocal, nextCaseLabel, endLabel);
                     compileExpr(matchCase.body());
                     mv.visitJumpInsn(GOTO, endLabel);
+                    
+                    locals.clear();
+                    locals.putAll(savedLocals);
+                    localTypes.clear();
+                    localTypes.putAll(savedLocalTypes);
                     
                     if (nextCaseLabel != null) {
                         mv.visitLabel(nextCaseLabel);
                     }
                 }
                 
+                nextLocal = savedNextLocal;
                 mv.visitLabel(endLabel);
                 freeLocal("$scrutinee");
             }
         }
     }
     
-    private void compilePattern(Pattern pattern, int scrutineeLocal, Label failLabel, Label endLabel) {
+    private void compilePattern(Pattern pattern, Expr scrutinee, int scrutineeLocal, Label failLabel, Label endLabel) {
         switch (pattern) {
             case Pattern.Wildcard() -> {
             }
@@ -644,14 +702,32 @@ public class Compiler {
                 }
                 
                 if (head instanceof Pattern.Var(String headName)) {
+                    Type scrutineeType = typeMap.getOrDefault(scrutinee, new Type.TList(new Type.TInt()));
+                    Type elemType = (scrutineeType instanceof Type.TList(Type inner)) ? inner : new Type.TInt();
+                    
                     mv.visitVarInsn(ALOAD, scrutineeLocal);
                     mv.visitInsn(ICONST_0);
                     mv.visitMethodInsn(INVOKEINTERFACE, "java/util/List", "get", "(I)Ljava/lang/Object;", true);
-                    mv.visitTypeInsn(CHECKCAST, "java/lang/Integer");
-                    mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
-                    int headVarLocal = allocLocal(headName);
-                    mv.visitVarInsn(ISTORE, headVarLocal);
-                    localTypes.put(headName, "I");
+                    
+                    String jvmType = typeToJVMType(elemType);
+                    if (jvmType.equals("I")) {
+                        mv.visitTypeInsn(CHECKCAST, "java/lang/Integer");
+                        mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
+                        int headVarLocal = allocLocal(headName);
+                        mv.visitVarInsn(ISTORE, headVarLocal);
+                        localTypes.put(headName, "I");
+                    } else if (jvmType.equals("D")) {
+                        mv.visitTypeInsn(CHECKCAST, "java/lang/Double");
+                        mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false);
+                        int headVarLocal = allocLocal(headName);
+                        mv.visitVarInsn(DSTORE, headVarLocal);
+                        localTypes.put(headName, "D");
+                    } else {
+                        mv.visitTypeInsn(CHECKCAST, typeToClassName(jvmType));
+                        int headVarLocal = allocLocal(headName);
+                        mv.visitVarInsn(ASTORE, headVarLocal);
+                        localTypes.put(headName, jvmType);
+                    }
                 }
                 
                 if (tail instanceof Pattern.Var(String tailName)) {
@@ -663,6 +739,44 @@ public class Compiler {
                     int tailVarLocal = allocLocal(tailName);
                     mv.visitVarInsn(ASTORE, tailVarLocal);
                     localTypes.put(tailName, "Ljava/util/List;");
+                }
+            }
+            
+            case Pattern.Ok(Pattern value) -> {
+                mv.visitVarInsn(ALOAD, scrutineeLocal);
+                mv.visitTypeInsn(INSTANCEOF, "com/miniml/Result$Ok");
+                if (failLabel != null) {
+                    mv.visitJumpInsn(IFEQ, failLabel);
+                } else {
+                    mv.visitInsn(POP);
+                }
+                
+                if (value instanceof Pattern.Var(String varName)) {
+                    mv.visitVarInsn(ALOAD, scrutineeLocal);
+                    mv.visitTypeInsn(CHECKCAST, "com/miniml/Result$Ok");
+                    mv.visitMethodInsn(INVOKEVIRTUAL, "com/miniml/Result$Ok", "value", "()Ljava/lang/Object;", false);
+                    int varLocal = allocLocal(varName);
+                    mv.visitVarInsn(ASTORE, varLocal);
+                    localTypes.put(varName, "Ljava/lang/Object;");
+                }
+            }
+            
+            case Pattern.Error(Pattern error) -> {
+                mv.visitVarInsn(ALOAD, scrutineeLocal);
+                mv.visitTypeInsn(INSTANCEOF, "com/miniml/Result$Error");
+                if (failLabel != null) {
+                    mv.visitJumpInsn(IFEQ, failLabel);
+                } else {
+                    mv.visitInsn(POP);
+                }
+                
+                if (error instanceof Pattern.Var(String varName)) {
+                    mv.visitVarInsn(ALOAD, scrutineeLocal);
+                    mv.visitTypeInsn(CHECKCAST, "com/miniml/Result$Error");
+                    mv.visitMethodInsn(INVOKEVIRTUAL, "com/miniml/Result$Error", "error", "()Ljava/lang/Object;", false);
+                    int varLocal = allocLocal(varName);
+                    mv.visitVarInsn(ASTORE, varLocal);
+                    localTypes.put(varName, "Ljava/lang/Object;");
                 }
             }
             
@@ -726,8 +840,20 @@ public class Compiler {
         
         boolean isString = leftType instanceof Type.TString || rightType instanceof Type.TString;
         boolean isDouble = leftType instanceof Type.TDouble || rightType instanceof Type.TDouble;
+        boolean isUnit = leftType instanceof Type.TUnit || rightType instanceof Type.TUnit;
         
-        if (isString) {
+        if (isUnit) {
+            if (op == Expr.Op.EQ || op == Expr.Op.NE) {
+                mv.visitMethodInsn(INVOKEVIRTUAL, "com/miniml/Unit", "equals", "(Ljava/lang/Object;)Z", false);
+                if (op == Expr.Op.EQ) {
+                    mv.visitJumpInsn(IFNE, trueLabel);
+                } else {
+                    mv.visitJumpInsn(IFEQ, trueLabel);
+                }
+            } else {
+                throw new RuntimeException("Cannot use comparison operators other than == and != on unit type");
+            }
+        } else if (isString) {
             if (op == Expr.Op.EQ || op == Expr.Op.NE) {
                 mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "equals", "(Ljava/lang/Object;)Z", false);
                 if (op == Expr.Op.EQ) {
@@ -821,8 +947,10 @@ public class Compiler {
     
     private String inferType(Expr expr) {
         return switch (expr) {
+            case Expr.Unit u -> "Lcom/miniml/Unit;";
             case Expr.IntLit i -> "I";
             case Expr.FloatLit f -> "D";
+            case Expr.BoolLit b -> "I";
             case Expr.StringLit s -> "Ljava/lang/String;";
             case Expr.StringInterp si -> "Ljava/lang/String;";
             case Expr.Var(String name) -> localTypes.getOrDefault(name, "I");
@@ -847,6 +975,8 @@ public class Compiler {
             }
             case Expr.ListLit l -> "Ljava/util/List;";
             case Expr.Cons c -> "Ljava/util/List;";
+            case Expr.Ok ok -> "Lcom/miniml/Result;";
+            case Expr.Error err -> "Lcom/miniml/Result;";
             case Expr.Match(Expr scrutinee, List<Expr.MatchCase> cases) -> 
                 cases.isEmpty() ? "I" : inferType(cases.get(0).body());
             case Expr.QualifiedVar qv -> "I";
@@ -874,6 +1004,34 @@ public class Compiler {
             };
         }
         return "I";
+    }
+    
+    private String typeToJVMType(Type type) {
+        return switch (type) {
+            case Type.TInt() -> "I";
+            case Type.TDouble() -> "D";
+            case Type.TString() -> "Ljava/lang/String;";
+            case Type.TUnit() -> "Lcom/miniml/Unit;";
+            case Type.TList(Type inner) -> "Ljava/util/List;";
+            default -> "Ljava/lang/Object;";
+        };
+    }
+    
+    private String typeToClassName(String jvmType) {
+        if (jvmType.startsWith("L") && jvmType.endsWith(";")) {
+            return jvmType.substring(1, jvmType.length() - 1);
+        }
+        return "java/lang/Object";
+    }
+    
+    private void boxIfNeeded(Type type) {
+        if (type instanceof Type.TInt) {
+            mv.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
+        } else if (type instanceof Type.TDouble) {
+            mv.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false);
+        } else if (type instanceof Type.TBool) {
+            mv.visitMethodInsn(INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false);
+        }
     }
 
     public void writeClassFile(String outputPath) throws IOException {

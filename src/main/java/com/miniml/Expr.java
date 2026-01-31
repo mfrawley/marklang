@@ -5,6 +5,7 @@ import java.util.List;
 public sealed interface Expr {
     record IntLit(int value) implements Expr {}
     record FloatLit(double value) implements Expr {}
+    record BoolLit(boolean value) implements Expr {}
     record StringLit(String value) implements Expr {}
     record StringInterp(List<Object> parts) implements Expr {}
     record Var(String name) implements Expr {}
@@ -22,6 +23,9 @@ public sealed interface Expr {
     record ListLit(List<Expr> elements) implements Expr {}
     record Cons(Expr head, Expr tail) implements Expr {}
     record Match(Expr scrutinee, List<MatchCase> cases) implements Expr {}
+    record Unit() implements Expr {}
+    record Ok(Expr value) implements Expr {}
+    record Error(Expr value) implements Expr {}
 
     record MatchCase(Pattern pattern, Expr body) {}
 

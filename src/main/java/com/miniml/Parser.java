@@ -367,6 +367,12 @@ public class Parser {
         if (match(Token.Type.FLOAT)) {
             return new Expr.FloatLit(Double.parseDouble(previous().value));
         }
+        if (match(Token.Type.TRUE)) {
+            return new Expr.BoolLit(true);
+        }
+        if (match(Token.Type.FALSE)) {
+            return new Expr.BoolLit(false);
+        }
         if (match(Token.Type.STRING)) {
             return parseString(previous().value);
         }
@@ -379,9 +385,21 @@ public class Parser {
             return new Expr.Var(name);
         }
         if (match(Token.Type.LPAREN)) {
+            if (peek().type == Token.Type.RPAREN) {
+                advance();
+                return new Expr.Unit();
+            }
             Expr e = expr();
             expect(Token.Type.RPAREN);
             return e;
+        }
+        if (match(Token.Type.OK)) {
+            Expr value = primaryExpr();
+            return new Expr.Ok(value);
+        }
+        if (match(Token.Type.ERROR)) {
+            Expr value = primaryExpr();
+            return new Expr.Error(value);
         }
         if (match(Token.Type.LBRACKET)) {
             if (match(Token.Type.RBRACKET)) {
@@ -412,20 +430,28 @@ public class Parser {
     }
 
     private Pattern parsePrimaryPattern() {
+        if (match(Token.Type.OK)) {
+            Pattern value = parsePrimaryPattern();
+            return new Pattern.Ok(value);
+        }
+        if (match(Token.Type.ERROR)) {
+            Pattern value = parsePrimaryPattern();
+            return new Pattern.Error(value);
+        }
         if (match(Token.Type.INT)) {
             return new Pattern.IntLit(Integer.parseInt(previous().value));
         }
         if (match(Token.Type.STRING)) {
             return new Pattern.StringLit(previous().value);
         }
+        if (match(Token.Type.TRUE)) {
+            return new Pattern.BoolLit(true);
+        }
+        if (match(Token.Type.FALSE)) {
+            return new Pattern.BoolLit(false);
+        }
         if (match(Token.Type.IDENT)) {
             String name = previous().value;
-            if (name.equals("true")) {
-                return new Pattern.BoolLit(true);
-            }
-            if (name.equals("false")) {
-                return new Pattern.BoolLit(false);
-            }
             return new Pattern.Var(name);
         }
         if (match(Token.Type.LBRACKET)) {

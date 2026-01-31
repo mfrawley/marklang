@@ -5,12 +5,18 @@ import java.util.List;
 
 public class Lexer {
     private final String source;
+    private final String filename;
     private int pos = 0;
     private int line = 1;
     private int column = 1;
 
     public Lexer(String source) {
+        this(source, "<input>");
+    }
+
+    public Lexer(String source, String filename) {
         this.source = source;
+        this.filename = filename;
     }
 
     public List<Token> tokenize() {
@@ -87,7 +93,7 @@ public class Lexer {
                     column++;
                     return new Token(Token.Type.NE, "!=", startLine, startColumn);
                 }
-                throw new RuntimeException("Unexpected character: !");
+                throw new LexerException("Unexpected character '!'", filename, startLine, startColumn);
             case ':':
                 if (pos < source.length() && source.charAt(pos) == ':') {
                     pos++;
@@ -129,7 +135,7 @@ public class Lexer {
                 }
                 return new Token(Token.Type.GT, ">", startLine, startColumn);
             default:
-                throw new RuntimeException("Unexpected character: " + c);
+                throw new LexerException("Unexpected character '" + c + "'", filename, startLine, startColumn);
         }
     }
 
@@ -170,6 +176,10 @@ public class Lexer {
             case "else" -> Token.Type.ELSE;
             case "match" -> Token.Type.MATCH;
             case "with" -> Token.Type.WITH;
+            case "true" -> Token.Type.TRUE;
+            case "false" -> Token.Type.FALSE;
+            case "Ok" -> Token.Type.OK;
+            case "Error" -> Token.Type.ERROR;
             case "print" -> Token.Type.PRINT;
             case "java_call" -> Token.Type.JAVA_CALL;
             case "java_instance_call" -> Token.Type.JAVA_INSTANCE_CALL;

@@ -28,7 +28,7 @@ public class Main {
         try {
             String source = Files.readString(Path.of(sourceFile));
             
-            Lexer lexer = new Lexer(source);
+            Lexer lexer = new Lexer(source, sourceFile);
             List<Token> tokens = lexer.tokenize();
             
             Parser parser = new Parser(tokens);
@@ -142,7 +142,7 @@ public class Main {
             try {
                 String source = Files.readString(stdlibFile);
                 
-                Lexer lexer = new Lexer(source);
+                Lexer lexer = new Lexer(source, stdlibFile.toString());
                 List<Token> tokens = lexer.tokenize();
                 
                 Parser parser = new Parser(tokens);

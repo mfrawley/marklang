@@ -142,8 +142,10 @@ public class TypeInference {
     
     public Type infer(Map<String, Type> localEnv, Expr expr) throws TypeException {
         Type type = switch (expr) {
+            case Expr.Unit u -> new Type.TUnit();
             case Expr.IntLit i -> new Type.TInt();
             case Expr.FloatLit f -> new Type.TDouble();
+            case Expr.BoolLit b -> new Type.TBool();
             case Expr.StringLit s -> new Type.TString();
             case Expr.StringInterp si -> new Type.TString();
             
@@ -325,6 +327,16 @@ public class TypeInference {
                 yield listType;
             }
             
+            case Expr.Ok(Expr value) -> {
+                Type valueType = infer(localEnv, value);
+                yield new Type.TResult(valueType, freshVar());
+            }
+            
+            case Expr.Error(Expr error) -> {
+                Type errorType = infer(localEnv, error);
+                yield new Type.TResult(freshVar(), errorType);
+            }
+            
             case Expr.Match(Expr scrutinee, List<Expr.MatchCase> cases) -> {
                 Type scrutineeType = infer(localEnv, scrutinee);
                 
@@ -393,6 +405,22 @@ public class TypeInference {
                 unify(expectedType, listType);
                 inferPattern(head, elementType, env);
                 inferPattern(tail, listType, env);
+            }
+            
+            case Pattern.Ok(Pattern value) -> {
+                Type okType = freshVar();
+                Type errorType = freshVar();
+                Type resultType = new Type.TResult(okType, errorType);
+                unify(expectedType, resultType);
+                inferPattern(value, okType, env);
+            }
+            
+            case Pattern.Error(Pattern error) -> {
+                Type okType = freshVar();
+                Type errorType = freshVar();
+                Type resultType = new Type.TResult(okType, errorType);
+                unify(expectedType, resultType);
+                inferPattern(error, errorType, env);
             }
         }
     }
@@ -544,6 +572,12 @@ public class TypeInference {
         
         if (type1 instanceof Type.TList(Type e1) && type2 instanceof Type.TList(Type e2)) {
             unify(e1, e2);
+            return;
+        }
+        
+        if (type1 instanceof Type.TResult(Type ok1, Type err1) && type2 instanceof Type.TResult(Type ok2, Type err2)) {
+            unify(ok1, ok2);
+            unify(err1, err2);
             return;
         }
         

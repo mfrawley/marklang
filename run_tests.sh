@@ -49,15 +49,16 @@ for test_file in tests/*.ml; do
         fi
     done
     
-    java -cp "$COMPILER_CP" com.miniml.Main "$test_file" > /dev/null 2>&1
+    compile_output=$(java -cp "$COMPILER_CP" com.miniml.Main "$test_file" 2>&1)
     
     if [ $? -ne 0 ]; then
         echo "❌ $test_name: Compilation failed"
+        echo "   Error: $compile_output"
         FAILED=$((FAILED + 1))
         continue
     fi
     
-    actual=$(java -cp target:tests/modules "$class_name" 2>&1 | head -n 1)
+    actual=$(java -cp target:target/classes:tests/modules "$class_name" 2>&1 | head -n 1)
     
     if [ "$actual" = "$expected" ]; then
         echo "✅ $test_name"

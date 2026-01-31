@@ -35,4 +35,14 @@ public sealed interface Pattern {
         @Override
         public String toString() { return head + " :: " + tail; }
     }
+    
+    record Ok(Pattern value) implements Pattern {
+        @Override
+        public String toString() { return "Ok " + value; }
+    }
+    
+    record Error(Pattern value) implements Pattern {
+        @Override
+        public String toString() { return "Error " + value; }
+    }
 }
