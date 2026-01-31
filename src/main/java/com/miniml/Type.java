@@ -41,6 +41,11 @@ public sealed interface Type {
         public String toString() { return "'" + name; }
     }
     
+    record TNumeric(String name) implements Type {
+        @Override
+        public String toString() { return "'" + name; }
+    }
+    
     record TFun(Type param, Type result) implements Type {
         @Override
         public String toString() { 
@@ -65,6 +70,7 @@ public sealed interface Type {
             case TUnit t -> "V";
             case TList t -> "Ljava/util/List;";
             case TVar t -> throw new IllegalStateException("Unresolved type variable '" + t.name() + "' during code generation");
+            case TNumeric t -> throw new IllegalStateException("Unresolved numeric type variable '" + t.name() + "' during code generation");
             case TFun t -> "Ljava/lang/Object;";
             case TScheme(List<String> vars, Type innerType) -> innerType.toJvmType();
         };

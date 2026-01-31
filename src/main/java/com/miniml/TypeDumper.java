@@ -11,7 +11,7 @@ public class TypeDumper {
         
         System.out.println("\nDeclarations:");
         for (Module.TopLevel decl : module.declarations()) {
-            if (decl instanceof Module.TopLevel.FnDecl(String name, var params, Expr body)) {
+            if (decl instanceof Module.TopLevel.FnDecl(String name, var params, var returnType, Expr body)) {
                 System.out.println("  fn " + name + " " + params + " =");
                 dumpExpr(body, typeMap, 4);
                 Type bodyType = typeMap.get(body);

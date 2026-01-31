@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 public class Main {
@@ -12,10 +13,10 @@ public class Main {
             System.err.println("Usage: miniml <source.ml>");
             System.exit(1);
         }
-
-        String sourceFile = args[0];
         
-        if (!sourceFile.startsWith("stdlib/")) {
+        String sourceFile = args[0];
+
+        if (!sourceFile.startsWith("stdlib/") && !sourceFile.startsWith("tests/") && !sourceFile.startsWith("test_")) {
             try {
                 compileStdLib();
             } catch (Exception e) {
@@ -36,6 +37,7 @@ public class Main {
             TypeInference typeInf = new TypeInference();
             try {
                 typeInf.inferModule(module);
+                TypeDumper.dumpModule(module, typeInf.getTypeMap(), typeInf.getInstantiations());
             } catch (TypeInference.TypeException e) {
                 System.err.println("Type error: " + e.getMessage());
                 System.exit(1);
@@ -69,6 +71,25 @@ public class Main {
             String outputFile = "target/" + finalClassName + ".class";
             Files.write(Path.of(outputFile), bytecode);
             
+            ModuleInterface moduleInterface = new ModuleInterface();
+            Map<String, Type> env = typeInf.getEnvironment();
+            for (Module.TopLevel decl : module.declarations()) {
+                if (decl instanceof Module.TopLevel.FnDecl(String name, List<Module.Param> params, var returnType, Expr body)) {
+                    Type fnType = env.get(name);
+                    if (fnType != null) {
+                        if (containsUnresolvedTypeVars(fnType)) {
+                            System.err.println("Error: Function '" + name + "' has unresolved type variables and cannot be exported.");
+                            System.err.println("  Inferred type: " + fnType);
+                            System.err.println("  Please add explicit type annotations to all parameters and return type.");
+                            System.exit(1);
+                        }
+                        moduleInterface.addExport(name, fnType);
+                    }
+                }
+            }
+            String mliFile = "target/" + finalClassName + ".mli";
+            moduleInterface.writeToFile(Path.of(mliFile));
+            
             System.out.println("Compiled " + sourceFile + " -> " + outputFile);
             
         } catch (IOException e) {
@@ -79,6 +100,18 @@ public class Main {
             e.printStackTrace();
             System.exit(1);
         }
+    }
+    
+    private static boolean containsUnresolvedTypeVars(Type type) {
+        return switch (type) {
+            case Type.TVar v -> true;
+            case Type.TNumeric n -> true;
+            case Type.TFun(Type param, Type result) ->
+                containsUnresolvedTypeVars(param) || containsUnresolvedTypeVars(result);
+            case Type.TList(Type elem) -> containsUnresolvedTypeVars(elem);
+            case Type.TScheme(var vars, Type inner) -> containsUnresolvedTypeVars(inner);
+            default -> false;
+        };
     }
     
     private static void compileStdLib() throws Exception {
@@ -136,6 +169,19 @@ public class Main {
                 
                 String outputFile = "target/" + fileName + ".class";
                 Files.write(Path.of(outputFile), bytecode);
+                
+                ModuleInterface moduleInterface = new ModuleInterface();
+                Map<String, Type> env = typeInf.getEnvironment();
+                for (Module.TopLevel decl : module.declarations()) {
+                    if (decl instanceof Module.TopLevel.FnDecl(String name, List<Module.Param> params, var returnType, Expr body)) {
+                        Type fnType = env.get(name);
+                        if (fnType != null) {
+                            moduleInterface.addExport(name, fnType);
+                        }
+                    }
+                }
+                String mliFile = "target/" + fileName + ".mli";
+                moduleInterface.writeToFile(Path.of(mliFile));
                 
             } catch (Exception e) {
                 throw new RuntimeException("Failed to compile stdlib module: " + stdlibFile, e);

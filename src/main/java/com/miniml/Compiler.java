@@ -39,7 +39,7 @@ public class Compiler {
         List<Module.TopLevel.LetDecl> letDecls = new ArrayList<>();
         
         for (Module.TopLevel decl : module.declarations()) {
-            if (decl instanceof Module.TopLevel.FnDecl(String name, List<Module.Param> params, Expr body)) {
+            if (decl instanceof Module.TopLevel.FnDecl(String name, List<Module.Param> params, var returnType, Expr body)) {
                 Set<Type> types = instantiations.getOrDefault(name, Set.of());
                 if (types.isEmpty()) {
                     compileTopLevelFunction(name, params, body, null);
@@ -466,28 +466,16 @@ public class Compiler {
                     mv.visitMethodInsn(INVOKESTATIC, className, methodName, descriptor, false);
                 } else if (func instanceof Expr.QualifiedVar(String moduleName, String memberName)) {
                     List<String> argTypeDescs = new ArrayList<>();
-                    List<Type> argTypes = new ArrayList<>();
                     for (Expr arg : args) {
                         compileExpr(arg);
                         Type argType = typeMap.getOrDefault(arg, new Type.TInt());
-                        argTypes.add(argType);
                         argTypeDescs.add(argType.toJvmType());
                     }
                     
                     Type appType = typeMap.getOrDefault(expr, new Type.TInt());
-                    String returnType = appType.toJvmType();
-                    
-                    Type firstArgType = argTypes.isEmpty() ? new Type.TInt() : argTypes.get(0);
-                    Type reconstructedType = appType;
-                    for (int i = argTypes.size() - 1; i >= 0; i--) {
-                        reconstructedType = new Type.TFun(argTypes.get(i), reconstructedType);
-                    }
-                    
-                    String suffix = getTypeSuffix(reconstructedType);
-                    String methodName = memberName + "$" + suffix;
-                    
-                    String descriptor = "(" + String.join("", argTypeDescs) + ")" + returnType;
-                    mv.visitMethodInsn(INVOKESTATIC, moduleName, methodName, descriptor, false);
+                    String returnTypeDesc = appType.toJvmType();
+                    String descriptor = "(" + String.join("", argTypeDescs) + ")" + returnTypeDesc;
+                    mv.visitMethodInsn(INVOKESTATIC, moduleName, memberName, descriptor, false);
                 } else {
                     throw new RuntimeException("Only named functions can be called for now");
                 }
@@ -893,5 +881,33 @@ public class Compiler {
         try (FileOutputStream fos = new FileOutputStream(outputPath)) {
             fos.write(bytecode);
         }
+    }
+    
+    private boolean containsNumericVar(Type type) {
+        return switch (type) {
+            case Type.TNumeric n -> true;
+            case Type.TFun(Type param, Type result) -> containsNumericVar(param) || containsNumericVar(result);
+            case Type.TList(Type elem) -> containsNumericVar(elem);
+            default -> false;
+        };
+    }
+    
+    private Type substituteNumericWith(Type type, Type replacement) {
+        return switch (type) {
+            case Type.TNumeric n -> replacement;
+            case Type.TFun(Type param, Type result) ->
+                new Type.TFun(substituteNumericWith(param, replacement), substituteNumericWith(result, replacement));
+            case Type.TList(Type elem) -> new Type.TList(substituteNumericWith(elem, replacement));
+            default -> type;
+        };
+    }
+    
+    private Type buildFunctionType(List<Module.Param> params, Type returnType) {
+        Type fnType = returnType;
+        for (int i = params.size() - 1; i >= 0; i--) {
+            Type paramType = params.get(i).typeAnnotation().orElse(returnType);
+            fnType = new Type.TFun(paramType, fnType);
+        }
+        return fnType;
     }
 }

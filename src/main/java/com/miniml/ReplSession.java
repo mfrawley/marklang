@@ -14,6 +14,7 @@ public class ReplSession {
     private final ReplClassLoader classLoader = new ReplClassLoader();
     private final Map<String, Type> environment = new HashMap<>();
     private final java.util.List<Module.TopLevel.LetDecl> letDeclarations = new java.util.ArrayList<>();
+    private final java.util.List<String> imports = new java.util.ArrayList<>();
     
     public static class EvalResult {
         public final Object value;
@@ -33,11 +34,42 @@ public class ReplSession {
         Lexer lexer = new Lexer(input);
         java.util.List<Token> tokens = lexer.tokenize();
         
-        if (isLetDeclaration(tokens)) {
+        if (isImportStatement(tokens)) {
+            return evalImport(tokens);
+        } else if (isLetDeclaration(tokens)) {
             return evalLetDeclaration(input, tokens);
         } else {
             return evalExpression(input, tokens);
         }
+    }
+    
+    private boolean isImportStatement(java.util.List<Token> tokens) {
+        return !tokens.isEmpty() && tokens.get(0).type == Token.Type.IMPORT;
+    }
+    
+    private EvalResult evalImport(java.util.List<Token> tokens) throws Exception {
+        int i = 1;
+        while (i < tokens.size() && tokens.get(i).type != Token.Type.EOF) {
+            if (tokens.get(i).type == Token.Type.IDENT) {
+                String moduleName = tokens.get(i).value;
+                if (!imports.contains(moduleName)) {
+                    imports.add(moduleName);
+                    
+                    TypeInference inference = new TypeInference();
+                    inference.loadModuleInterface(moduleName);
+                    Map<String, Type> moduleExports = inference.getEnvironment();
+                    
+                    for (Map.Entry<String, Type> entry : moduleExports.entrySet()) {
+                        if (!entry.getKey().contains(".")) {
+                            environment.put(entry.getKey(), entry.getValue());
+                        }
+                        environment.put(moduleName + "." + entry.getKey(), entry.getValue());
+                    }
+                }
+            }
+            i++;
+        }
+        return new EvalResult(null, new Type.TUnit(), null, true);
     }
     
     private boolean isLetDeclaration(java.util.List<Token> tokens) {
@@ -67,6 +99,9 @@ public class ReplSession {
         }
         
         TypeInference inference = new TypeInference();
+        for (String importName : imports) {
+            inference.loadModuleInterface(importName);
+        }
         Type valueType = inference.infer(new HashMap<>(environment), letDecl.value());
         
         environment.put(letDecl.name(), valueType);
@@ -81,7 +116,7 @@ public class ReplSession {
         Parser parser = new Parser(tokens);
         Expr expr = parser.parseExpr();
         
-        Module module = new Module(java.util.List.of(), new java.util.ArrayList<>(letDeclarations), expr);
+        Module module = new Module(new java.util.ArrayList<>(imports), new java.util.ArrayList<>(letDeclarations), expr);
         
         TypeInference inference = new TypeInference();
         Type type = inference.inferModule(module);

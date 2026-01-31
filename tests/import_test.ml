@@ -1,4 +1,4 @@
-# Test: Module imports and qualified calls
+# Test: Import module and use qualified call
 # Expected: 42
 import Utils
 

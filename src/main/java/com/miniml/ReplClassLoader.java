@@ -1,5 +1,8 @@
 package com.miniml;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -20,6 +23,16 @@ public class ReplClassLoader extends ClassLoader {
         if (bytes != null) {
             return defineClass(name, bytes, 0, bytes.length);
         }
+        
+        try {
+            Path classFile = Path.of("target/" + name + ".class");
+            if (Files.exists(classFile)) {
+                bytes = Files.readAllBytes(classFile);
+                return defineClass(name, bytes, 0, bytes.length);
+            }
+        } catch (IOException e) {
+        }
+        
         return super.findClass(name);
     }
 }

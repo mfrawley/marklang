@@ -59,6 +59,10 @@ public class Parser {
                 advance();
             }
         }
+        if (peek().type == Token.Type.COLON) {
+            advance();
+            advance();
+        }
         if (peek().type != Token.Type.ASSIGN) {
             pos = saved;
             return false;
@@ -92,10 +96,15 @@ public class Parser {
         while (peek().type == Token.Type.IDENT || peek().type == Token.Type.LPAREN) {
             params.add(parseParam());
         }
+        Optional<Type> returnType = Optional.empty();
+        if (peek().type == Token.Type.COLON) {
+            advance();
+            returnType = Optional.of(parseType());
+        }
         expect(Token.Type.ASSIGN);
         Expr body = expr();
         expect(Token.Type.SEMICOLON);
-        return new Module.TopLevel.FnDecl(name, params, body);
+        return new Module.TopLevel.FnDecl(name, params, returnType, body);
     }
     
     private boolean isTopLevelLet() {

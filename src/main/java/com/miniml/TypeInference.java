@@ -29,13 +29,16 @@ public class TypeInference {
     }
     
     public Type inferModule(Module module) throws TypeException {
+        for (String importName : module.imports()) {
+            loadModuleInterface(importName);
+        }
+        
         for (Module.TopLevel decl : module.declarations()) {
-            if (decl instanceof Module.TopLevel.FnDecl(String name, List<Module.Param> params, Expr body)) {
-                Type fnType = inferTopLevelFn(params, body);
+            if (decl instanceof Module.TopLevel.FnDecl(String name, List<Module.Param> params, var returnType, Expr body)) {
+                Type fnType = inferTopLevelFn(params, returnType, body);
                 Type scheme = generalize(new HashMap<>(), fnType);
                 env.put(name, scheme);
                 
-                typeMap.put(body, fnType);
                 instantiations.put(name, new HashSet<>());
             } else if (decl instanceof Module.TopLevel.LetDecl(String name, Expr value)) {
                 Type valueType = infer(env, value);
@@ -55,6 +58,21 @@ public class TypeInference {
         return result;
     }
     
+    public void loadModuleInterface(String moduleName) {
+        try {
+            java.nio.file.Path mliPath = java.nio.file.Path.of("target/" + moduleName + ".mli");
+            ModuleInterface moduleInterface = ModuleInterface.readFromFile(mliPath);
+            
+            for (Map.Entry<String, Type> entry : moduleInterface.getExports().entrySet()) {
+                String qualifiedName = moduleName + "." + entry.getKey();
+                Type scheme = generalize(new HashMap<>(), entry.getValue());
+                env.put(qualifiedName, scheme);
+                env.put(entry.getKey(), scheme);
+            }
+        } catch (java.io.IOException e) {
+        }
+    }
+    
     private void finalizeInstantiations() {
         Map<String, Set<Type>> finalized = new HashMap<>();
         for (Map.Entry<String, Set<Type>> entry : instantiations.entrySet()) {
@@ -72,7 +90,7 @@ public class TypeInference {
         instantiations = finalized;
     }
     
-    private Type inferTopLevelFn(List<Module.Param> params, Expr body) throws TypeException {
+    private Type inferTopLevelFn(List<Module.Param> params, Optional<Type> returnTypeAnnotation, Expr body) throws TypeException {
         Map<String, Type> localEnv = new HashMap<>(env);
         List<Type> paramTypes = new ArrayList<>();
         
@@ -88,6 +106,11 @@ public class TypeInference {
         }
         
         Type resultType = infer(localEnv, body);
+        
+        if (returnTypeAnnotation.isPresent()) {
+            unify(resultType, returnTypeAnnotation.get());
+            resultType = returnTypeAnnotation.get();
+        }
         
         Type fnType = resultType;
         for (int i = paramTypes.size() - 1; i >= 0; i--) {
@@ -136,7 +159,10 @@ public class TypeInference {
                 if (env.containsKey(qualifiedName)) {
                     yield instantiate(env.get(qualifiedName));
                 }
-                yield freshVar();
+                if (env.containsKey(memberName)) {
+                    yield instantiate(env.get(memberName));
+                }
+                throw new TypeException("Undefined qualified variable: " + qualifiedName);
             }
             
             case Expr.Let(String name, Expr value, Expr body) -> {
@@ -187,7 +213,7 @@ public class TypeInference {
                     argTypes.add(argType);
                     Type freshResult = freshVar();
                     unify(resultType, new Type.TFun(argType, freshResult));
-                    resultType = freshResult;
+                    resultType = fullyPrune(freshResult);
                 }
                 
                 String funcName = null;
@@ -209,11 +235,13 @@ public class TypeInference {
                     
                     Type finalType = prune(resultType);
                     if (instantiations.containsKey(funcName) && !(finalType instanceof Type.TVar)) {
-                        Type reconstructed = finalType;
+                        Type reconstructed = fullyPrune(finalType);
                         for (int i = argTypes.size() - 1; i >= 0; i--) {
-                            reconstructed = new Type.TFun(prune(argTypes.get(i)), reconstructed);
+                            reconstructed = new Type.TFun(fullyPrune(argTypes.get(i)), reconstructed);
                         }
-                        instantiations.get(funcName).add(reconstructed);
+                        if (!containsUnresolvedVars(reconstructed)) {
+                            instantiations.get(funcName).add(reconstructed);
+                        }
                     }
                 }
                 
@@ -237,8 +265,10 @@ public class TypeInference {
                 
                 yield switch (op) {
                     case ADD, SUB, MUL, DIV, MOD -> {
-                        unify(leftType, rightType);
-                        yield leftType;
+                        Type numericType = freshNumeric();
+                        unify(leftType, numericType);
+                        unify(rightType, numericType);
+                        yield numericType;
                     }
                     case EQ, NE, LT, GT, LE, GE -> {
                         unify(leftType, rightType);
@@ -326,7 +356,7 @@ public class TypeInference {
     public void pruneTypeMap() {
         Map<Expr, Type> prunedMap = new HashMap<>();
         for (Map.Entry<Expr, Type> entry : typeMap.entrySet()) {
-            prunedMap.put(entry.getKey(), prune(entry.getValue()));
+            prunedMap.put(entry.getKey(), fullyPrune(entry.getValue()));
         }
         typeMap = prunedMap;
     }
@@ -375,6 +405,22 @@ public class TypeInference {
                 default -> freshVar();
             };
         }
+        
+        String qualifiedName = className + "." + methodName;
+        if (env.containsKey(qualifiedName)) {
+            Type fnType = env.get(qualifiedName);
+            if (fnType instanceof Type.TFun(Type param, Type result)) {
+                return result;
+            }
+        }
+        
+        if (env.containsKey(methodName)) {
+            Type fnType = env.get(methodName);
+            if (fnType instanceof Type.TFun(Type param, Type result)) {
+                return result;
+            }
+        }
+        
         return freshVar();
     }
     
@@ -391,6 +437,10 @@ public class TypeInference {
     
     private Type freshVar() {
         return new Type.TVar("t" + (nextVarId++));
+    }
+    
+    private Type freshNumeric() {
+        return new Type.TNumeric("n" + (nextVarId++));
     }
     
     private Type instantiate(Type type) {
@@ -423,6 +473,7 @@ public class TypeInference {
     private Set<String> freeTypeVars(Type type) {
         return switch (type) {
             case Type.TVar(String name) -> Set.of(name);
+            case Type.TNumeric(String name) -> Set.of(name);
             case Type.TFun(Type param, Type result) -> {
                 Set<String> vars = new HashSet<>(freeTypeVars(param));
                 vars.addAll(freeTypeVars(result));
@@ -459,6 +510,32 @@ public class TypeInference {
             return;
         }
         
+        if (type1 instanceof Type.TNumeric(String name)) {
+            if (!type1.equals(type2)) {
+                if (type2 instanceof Type.TInt || type2 instanceof Type.TDouble || type2 instanceof Type.TNumeric) {
+                    if (occursInType(name, type2)) {
+                        throw new TypeException("Recursive type: " + name + " occurs in " + type2);
+                    }
+                    bind(name, type2);
+                } else {
+                    throw new TypeException("Type mismatch: numeric type " + type1 + " cannot unify with " + type2);
+                }
+            }
+            return;
+        }
+        
+        if (type2 instanceof Type.TNumeric(String name)) {
+            if (type1 instanceof Type.TInt || type1 instanceof Type.TDouble) {
+                if (occursInType(name, type1)) {
+                    throw new TypeException("Recursive type: " + name + " occurs in " + type1);
+                }
+                bind(name, type1);
+            } else {
+                throw new TypeException("Type mismatch: numeric type " + type2 + " cannot unify with " + type1);
+            }
+            return;
+        }
+        
         if (type1 instanceof Type.TFun(Type p1, Type r1) && type2 instanceof Type.TFun(Type p2, Type r2)) {
             unify(p1, p2);
             unify(r1, r2);
@@ -489,12 +566,42 @@ public class TypeInference {
             substitutions.put(name, pruned);
             return pruned;
         }
+        if (type instanceof Type.TNumeric(String name) && substitutions.containsKey(name)) {
+            Type pruned = prune(substitutions.get(name));
+            substitutions.put(name, pruned);
+            return pruned;
+        }
         return type;
+    }
+    
+    private Type fullyPrune(Type type) {
+        Type pruned = prune(type);
+        return switch (pruned) {
+            case Type.TFun(Type param, Type result) ->
+                new Type.TFun(fullyPrune(param), fullyPrune(result));
+            case Type.TList(Type elem) ->
+                new Type.TList(fullyPrune(elem));
+            default -> pruned;
+        };
+    }
+    
+    private boolean containsUnresolvedVars(Type type) {
+        return switch (type) {
+            case Type.TVar v -> true;
+            case Type.TNumeric n -> true;
+            case Type.TFun(Type param, Type result) ->
+                containsUnresolvedVars(param) || containsUnresolvedVars(result);
+            case Type.TList(Type elem) -> containsUnresolvedVars(elem);
+            default -> false;
+        };
     }
     
     private boolean occursInType(String var, Type type) {
         Type pruned = prune(type);
         if (pruned instanceof Type.TVar(String name)) {
+            return name.equals(var);
+        }
+        if (pruned instanceof Type.TNumeric(String name)) {
             return name.equals(var);
         }
         if (pruned instanceof Type.TFun(Type param, Type result)) {
@@ -523,6 +630,10 @@ public class TypeInference {
     
     public Map<Expr, Type> getTypeMap() {
         return typeMap;
+    }
+    
+    public Map<String, Type> getEnvironment() {
+        return new HashMap<>(env);
     }
     
     public static class TypeException extends Exception {

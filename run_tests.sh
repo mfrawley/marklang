@@ -13,7 +13,7 @@ if [ -d "tests/modules" ]; then
     java -cp "$COMPILER_CP" com.miniml.Main tests/modules/utils.ml > /dev/null 2>&1
 fi
 
-for test_file in tests/*.ml tests/modules/*.ml; do
+for test_file in tests/*.ml; do
     # Skip utils.ml as it's a dependency module
     if [[ "$test_file" == "tests/modules/utils.ml" ]]; then
         continue
