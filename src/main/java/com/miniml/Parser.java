@@ -410,21 +410,44 @@ public class Parser {
 
     private Expr appExpr() {
         Expr func = primaryExpr();
-        List<Expr> args = new ArrayList<>();
-        while (peek().type == Token.Type.INT || 
-               peek().type == Token.Type.FLOAT ||
-               peek().type == Token.Type.STRING ||
-               peek().type == Token.Type.IDENT ||
-               peek().type == Token.Type.LPAREN) {
-            args.add(primaryExpr());
+        
+        while (true) {
+            if (match(Token.Type.SLASH)) {
+                String methodName = expect(Token.Type.IDENT).value;
+                List<Expr> args = new ArrayList<>();
+                while (peek().type == Token.Type.INT || 
+                       peek().type == Token.Type.FLOAT ||
+                       peek().type == Token.Type.STRING ||
+                       peek().type == Token.Type.IDENT ||
+                       peek().type == Token.Type.LPAREN ||
+                       peek().type == Token.Type.LBRACKET) {
+                    args.add(primaryExpr());
+                }
+                func = new Expr.JavaInstanceCall("java.lang.Object", methodName, func, args);
+            } else if (peek().type == Token.Type.INT || 
+                       peek().type == Token.Type.FLOAT ||
+                       peek().type == Token.Type.STRING ||
+                       peek().type == Token.Type.IDENT ||
+                       peek().type == Token.Type.LPAREN) {
+                List<Expr> args = new ArrayList<>();
+                while (peek().type == Token.Type.INT || 
+                       peek().type == Token.Type.FLOAT ||
+                       peek().type == Token.Type.STRING ||
+                       peek().type == Token.Type.IDENT ||
+                       peek().type == Token.Type.LPAREN) {
+                    args.add(primaryExpr());
+                }
+                if (func instanceof Expr.Constructor(String name, java.util.Optional<Expr> existingArg) && args.size() == 1) {
+                    func = new Expr.Constructor(name, java.util.Optional.of(args.get(0)));
+                } else {
+                    func = new Expr.App(func, args);
+                }
+            } else {
+                break;
+            }
         }
-        if (args.isEmpty()) {
-            return func;
-        }
-        if (func instanceof Expr.Constructor(String name, java.util.Optional<Expr> existingArg) && args.size() == 1) {
-            return new Expr.Constructor(name, java.util.Optional.of(args.get(0)));
-        }
-        return new Expr.App(func, args);
+        
+        return func;
     }
 
     private Expr primaryExpr() {
@@ -445,6 +468,21 @@ public class Parser {
         }
         if (match(Token.Type.IDENT)) {
             String name = previous().value;
+            if (peek().type == Token.Type.SLASH && Character.isUpperCase(name.charAt(0))) {
+                advance();
+                String methodName = expect(Token.Type.IDENT).value;
+                List<Expr> args = new ArrayList<>();
+                while (peek().type == Token.Type.INT || 
+                       peek().type == Token.Type.FLOAT ||
+                       peek().type == Token.Type.STRING ||
+                       peek().type == Token.Type.IDENT ||
+                       peek().type == Token.Type.LPAREN ||
+                       peek().type == Token.Type.LBRACKET) {
+                    args.add(primaryExpr());
+                }
+                String fullClassName = "java.lang." + name;
+                return new Expr.JavaCall(fullClassName, methodName, args);
+            }
             if (match(Token.Type.DOT)) {
                 String memberName = expect(Token.Type.IDENT).value;
                 return new Expr.QualifiedVar(name, memberName);
@@ -575,6 +613,13 @@ public class Parser {
 
     private Token peek() {
         return tokens.get(pos);
+    }
+    
+    private Token peekAhead(int n) {
+        if (pos + n - 1 < tokens.size()) {
+            return tokens.get(pos + n - 1);
+        }
+        return tokens.get(tokens.size() - 1);
     }
 
     private Token previous() {

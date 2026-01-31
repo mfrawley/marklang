@@ -1,0 +1,2 @@
+let x = Integer/parseInt("42") in
+x == 42

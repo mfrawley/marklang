@@ -517,6 +517,18 @@ public class Compiler {
             
             case Expr.App(Expr func, List<Expr> args) -> {
                 if (func instanceof Expr.Var(String funcName)) {
+                    if ("box".equals(funcName) && args.size() == 1) {
+                        compileExpr(args.get(0));
+                        Type argType = typeMap.getOrDefault(args.get(0), new Type.TInt());
+                        switch (argType) {
+                            case Type.TInt i -> mv.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
+                            case Type.TDouble d -> mv.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false);
+                            case Type.TBool b -> mv.visitMethodInsn(INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false);
+                            default -> throw new RuntimeException("Cannot box type: " + argType);
+                        }
+                        return;
+                    }
+                    
                     List<String> argTypeDescs = new ArrayList<>();
                     List<Type> argTypes = new ArrayList<>();
                     for (Expr arg : args) {
@@ -588,17 +600,19 @@ public class Compiler {
                 mv.visitMethodInsn(INVOKESTATIC, jvmClassName, methodName, descriptor, false);
             }
             
-            case Expr.JavaInstanceCall(String className, String methodName, Expr instance, List<Expr> args) -> {
-                String jvmClassName = className.replace('.', '/');
+            case Expr.JavaInstanceCall javaInstanceCall -> {
+                compileExpr(javaInstanceCall.instance());
                 
-                compileExpr(instance);
+                Type instanceType = typeMap.getOrDefault(javaInstanceCall.instance(), new Type.TInt());
                 
-                for (Expr arg : args) {
+                for (Expr arg : javaInstanceCall.args()) {
                     compileExpr(arg);
                 }
                 
-                String descriptor = inferInstanceMethodDescriptor(className, methodName, args);
-                mv.visitMethodInsn(INVOKEVIRTUAL, jvmClassName, methodName, descriptor, false);
+                String actualClassName = getJavaClassName(instanceType);
+                String jvmClassName = actualClassName.replace('.', '/');
+                String descriptor = inferInstanceMethodDescriptor(javaInstanceCall, actualClassName, javaInstanceCall.methodName(), javaInstanceCall.args());
+                mv.visitMethodInsn(INVOKEVIRTUAL, jvmClassName, javaInstanceCall.methodName(), descriptor, false);
             }
             
             case Expr.ListLit(List<Expr> elements) -> {
@@ -833,38 +847,44 @@ public class Compiler {
         return desc.toString();
     }
     
-    private String inferInstanceMethodDescriptor(String className, String methodName, List<Expr> args) {
+    private String getJavaClassName(Type type) {
+        return switch (type) {
+            case Type.TString s -> "java.lang.String";
+            case Type.TInt i -> "java.lang.Integer";
+            case Type.TDouble d -> "java.lang.Double";
+            case Type.TBool b -> "java.lang.Boolean";
+            case Type.TName(String name) -> "java.lang." + name;
+            default -> "java.lang.Object";
+        };
+    }
+    
+    private String inferInstanceMethodDescriptor(Expr instanceCallExpr, String className, String methodName, List<Expr> args) {
+        try {
+            Class<?> clazz = Class.forName(className);
+            for (java.lang.reflect.Method method : clazz.getMethods()) {
+                if (method.getName().equals(methodName) && 
+                    method.getParameterCount() == args.size() &&
+                    java.lang.reflect.Modifier.isPublic(method.getModifiers())) {
+                    StringBuilder desc = new StringBuilder("(");
+                    for (Class<?> paramType : method.getParameterTypes()) {
+                        desc.append(org.objectweb.asm.Type.getDescriptor(paramType));
+                    }
+                    desc.append(")");
+                    desc.append(org.objectweb.asm.Type.getDescriptor(method.getReturnType()));
+                    return desc.toString();
+                }
+            }
+        } catch (ClassNotFoundException e) {
+        }
+        
         StringBuilder desc = new StringBuilder("(");
         for (Expr arg : args) {
-            if (arg instanceof Expr.StringLit || arg instanceof Expr.StringInterp) {
-                desc.append("Ljava/lang/String;");
-            } else if (arg instanceof Expr.FloatLit) {
-                desc.append("D");
-            } else if (arg instanceof Expr.Var(String varName)) {
-                String type = localTypes.getOrDefault(varName, "I");
-                if (type.equals("Ljava/lang/String;")) {
-                    desc.append("Ljava/lang/String;");
-                } else {
-                    desc.append("I");
-                }
-            } else {
-                desc.append("I");
-            }
+            Type argType = typeMap.getOrDefault(arg, new Type.TInt());
+            desc.append(argType.toJvmType());
         }
         desc.append(")");
-        
-        if (className.equals("java.lang.String")) {
-            if (methodName.equals("length")) {
-                desc.append("I");
-            } else if (methodName.equals("toUpperCase") || methodName.equals("toLowerCase")) {
-                desc.append("Ljava/lang/String;");
-            } else {
-                desc.append("Ljava/lang/String;");
-            }
-        } else {
-            desc.append("I");
-        }
-        
+        Type returnType = typeMap.getOrDefault(instanceCallExpr, new Type.TInt());
+        desc.append(returnType.toJvmType());
         return desc.toString();
     }
 

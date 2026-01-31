@@ -81,6 +81,11 @@ public sealed interface Type {
         public String toString() { return name; }
     }
     
+    record TBoxed() implements Type {
+        @Override
+        public String toString() { return "<boxed>"; }
+    }
+    
     default String toJvmType() {
         return switch (this) {
             case TInt t -> "I";
@@ -96,6 +101,7 @@ public sealed interface Type {
             case TScheme(List<String> vars, Type innerType) -> innerType.toJvmType();
             case TApp(String name, List<Type> args) -> "Lcom/miniml/" + name + ";";
             case TName(String name) -> "Lcom/miniml/" + name + ";";
+            case TBoxed t -> "Ljava/lang/Object;";
         };
     }
 }

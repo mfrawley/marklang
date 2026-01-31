@@ -31,6 +31,8 @@ public class TypeInference {
         
         env.put("print", new Type.TScheme(List.of("a"), 
             new Type.TFun(new Type.TVar("a"), new Type.TUnit())));
+        
+        env.put("box", new Type.TBoxed());
     }
     
     public Type inferModule(Module module) throws TypeException {
@@ -228,6 +230,24 @@ public class TypeInference {
             }
             
             case Expr.App(Expr func, List<Expr> args) -> {
+                String funcName = null;
+                if (func instanceof Expr.Var v) {
+                    funcName = v.name();
+                } else if (func instanceof Expr.QualifiedVar qv) {
+                    funcName = qv.name();
+                }
+                
+                if ("box".equals(funcName) && args.size() == 1) {
+                    Type argType = infer(localEnv, args.get(0));
+                    Type boxedType = switch (argType) {
+                        case Type.TInt i -> new Type.TName("Integer");
+                        case Type.TDouble d -> new Type.TName("Double");
+                        case Type.TBool b -> new Type.TName("Boolean");
+                        default -> new Type.TVar("boxed_" + nextVarId++);
+                    };
+                    yield boxedType;
+                }
+                
                 Type funcType = infer(localEnv, func);
                 Type resultType = funcType;
                 
@@ -238,13 +258,6 @@ public class TypeInference {
                     Type freshResult = freshVar();
                     unify(resultType, new Type.TFun(argType, freshResult));
                     resultType = fullyPrune(freshResult);
-                }
-                
-                String funcName = null;
-                if (func instanceof Expr.Var v) {
-                    funcName = v.name();
-                } else if (func instanceof Expr.QualifiedVar qv) {
-                    funcName = qv.name();
                 }
                 
                 if (funcName != null) {
@@ -342,11 +355,11 @@ public class TypeInference {
             }
             
             case Expr.JavaInstanceCall(String className, String methodName, Expr instance, List<Expr> args) -> {
-                infer(localEnv, instance);
+                Type instanceType = infer(localEnv, instance);
                 for (Expr arg : args) {
                     infer(localEnv, arg);
                 }
-                yield inferJavaInstanceCallType(className, methodName);
+                yield inferJavaInstanceCallType(instanceType, methodName);
             }
             
             case Expr.ListLit(List<Expr> elements) -> {
@@ -473,41 +486,63 @@ public class TypeInference {
     }
     
     private Type inferJavaCallType(String className, String methodName) {
-        if (className.equals("java.lang.Math")) {
-            return switch (methodName) {
-                case "sqrt", "sin", "cos", "tan", "log", "exp", "pow" -> new Type.TDouble();
-                case "abs", "max", "min" -> new Type.TInt();
-                default -> freshVar();
-            };
+        try {
+            Class<?> clazz = Class.forName(className);
+            for (java.lang.reflect.Method method : clazz.getDeclaredMethods()) {
+                if (method.getName().equals(methodName) && 
+                    java.lang.reflect.Modifier.isStatic(method.getModifiers()) &&
+                    java.lang.reflect.Modifier.isPublic(method.getModifiers())) {
+                    return javaTypeToMiniML(method.getReturnType());
+                }
+            }
+        } catch (ClassNotFoundException e) {
         }
-        
-        String qualifiedName = className + "." + methodName;
-        if (env.containsKey(qualifiedName)) {
-            Type fnType = env.get(qualifiedName);
-            if (fnType instanceof Type.TFun(Type param, Type result)) {
-                return result;
+        return freshVar();
+    }
+    
+    private Type inferJavaInstanceCallType(Type instanceType, String methodName) {
+        Class<?> clazz = null;
+        if (instanceType instanceof Type.TString) {
+            clazz = String.class;
+        } else if (instanceType instanceof Type.TInt) {
+            clazz = Integer.class;
+        } else if (instanceType instanceof Type.TDouble) {
+            clazz = Double.class;
+        } else if (instanceType instanceof Type.TBool) {
+            clazz = Boolean.class;
+        } else if (instanceType instanceof Type.TName(String name)) {
+            try {
+                clazz = Class.forName("java.lang." + name);
+            } catch (ClassNotFoundException e) {
             }
         }
         
-        if (env.containsKey(methodName)) {
-            Type fnType = env.get(methodName);
-            if (fnType instanceof Type.TFun(Type param, Type result)) {
-                return result;
+        if (clazz != null) {
+            for (java.lang.reflect.Method method : clazz.getMethods()) {
+                if (method.getName().equals(methodName) && 
+                    java.lang.reflect.Modifier.isPublic(method.getModifiers())) {
+                    return javaTypeToMiniML(method.getReturnType());
+                }
             }
         }
         
         return freshVar();
     }
     
-    private Type inferJavaInstanceCallType(String className, String methodName) {
-        if (className.equals("java.lang.String")) {
-            return switch (methodName) {
-                case "length" -> new Type.TInt();
-                case "toUpperCase", "toLowerCase" -> new Type.TString();
-                default -> freshVar();
-            };
+    private Type javaTypeToMiniML(Class<?> javaType) {
+        if (javaType == int.class || javaType == Integer.class) {
+            return new Type.TInt();
+        } else if (javaType == double.class || javaType == Double.class) {
+            return new Type.TDouble();
+        } else if (javaType == boolean.class || javaType == Boolean.class) {
+            return new Type.TBool();
+        } else if (javaType == String.class) {
+            return new Type.TString();
+        } else if (javaType == void.class) {
+            return new Type.TUnit();
+        } else {
+            return freshVar();
         }
-        return freshVar();
     }
     
     private Type freshVar() {

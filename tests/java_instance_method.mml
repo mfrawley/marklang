@@ -1,0 +1,2 @@
+let s = "hello" in
+s/toUpperCase == "HELLO"
