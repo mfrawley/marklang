@@ -10,7 +10,7 @@ import java.util.stream.Stream;
 public class Main {
     public static void main(String[] args) {
         if (args.length != 1) {
-            System.err.println("Usage: miniml <source.ml>");
+            System.err.println("Usage: miniml <source.mml>");
             System.exit(1);
         }
         
@@ -48,7 +48,7 @@ public class Main {
             String fileName = Path.of(sourceFile)
                 .getFileName()
                 .toString()
-                .replace(".ml", "");
+                .replace(".mml", "");
             
             StringBuilder className = new StringBuilder();
             boolean capitalizeNext = true;
@@ -159,7 +159,7 @@ public class Main {
                 
                 String fileName = stdlibFile.getFileName()
                     .toString()
-                    .replace(".ml", "");
+                    .replace(".mml", "");
                 
                 Compiler compiler = new Compiler(fileName, typeInf.getTypeMap(), typeInf.getInstantiations());
                 byte[] bytecode = compiler.compileModule(module);

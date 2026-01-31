@@ -10,16 +10,16 @@ echo "======================"
 
 # First compile any modules in tests/modules/
 if [ -d "tests/modules" ]; then
-    java -cp "$COMPILER_CP" com.miniml.Main tests/modules/utils.ml > /dev/null 2>&1
+    java -cp "$COMPILER_CP" com.miniml.Main tests/modules/utils.mml > /dev/null 2>&1
 fi
 
-for test_file in tests/*.ml; do
-    # Skip utils.ml as it's a dependency module
-    if [[ "$test_file" == "tests/modules/utils.ml" ]]; then
+for test_file in tests/*.mml; do
+    # Skip utils.mml as it's a dependency module
+    if [[ "$test_file" == "tests/modules/utils.mml" ]]; then
         continue
     fi
     TOTAL=$((TOTAL + 1))
-    test_name=$(basename "$test_file" .ml)
+    test_name=$(basename "$test_file" .mml)
     
     # Check if this is a new-style boolean test (no # Expected: line)
     expected=$(grep "# Expected:" "$test_file" | sed 's/# Expected: //')

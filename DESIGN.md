@@ -137,7 +137,7 @@ let array = Java.new "java.util.ArrayList" []
 
 ## File Structure
 
-- `.ml` extension for source files
+- `.mml` extension for source files
 - Module name derived from filename
 - Each file is a module
 

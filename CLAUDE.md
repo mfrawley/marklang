@@ -29,13 +29,13 @@ mvn clean compile
 ./run_tests.sh
 ```
 
-Test files are in `tests/*.ml`. Tests either:
+Test files are in `tests/*.mml`. Tests either:
 1. Contain `# Expected: <value>` comments, or
 2. Default to expecting `true` output
 
 ### Compile a Single File
 ```bash
-java -cp "target/classes:$HOME/.m2/repository/org/ow2/asm/asm/9.6/asm-9.6.jar:$HOME/.m2/repository/org/ow2/asm/asm-util/9.6/asm-util-9.6.jar" com.miniml.Main <file.ml>
+java -cp "target/classes:$HOME/.m2/repository/org/ow2/asm/asm/9.6/asm-9.6.jar:$HOME/.m2/repository/org/ow2/asm/asm-util/9.6/asm-util-9.6.jar" com.miniml.Main <file.mml>
 ```
 
 ### Run Compiled Class
@@ -48,7 +48,7 @@ java -cp "target/classes:target" <ClassName>
 ### Compilation Pipeline
 
 ```
-Source (.ml) 
+Source (.mml) 
   → Lexer (Lexer.java)
   → Parser (Parser.java) 
   → AST (Expr.java, Module.java, Pattern.java)
@@ -129,11 +129,11 @@ Pattern matching compiles to:
 
 Error messages follow the format: `filename:line:column: message`
 
-Example: `tests/bool_and.ml:2:6: Unexpected character '&'`
+Example: `tests/bool_and.mml:2:6: Unexpected character '&'`
 
 ## Testing Strategy
 
-- Test files in `tests/*.ml`
+- Test files in `tests/*.mml`
 - Each test should be focused on a single feature
 - Use `# Expected:` comments for non-boolean tests
 - Boolean tests default to expecting `true`
