@@ -1,4 +1,8 @@
 # Test: Division with Result
+type result<ok, err> =
+  | Ok of ok
+  | Error of err
+
 let r1 = Ok 5 in
 let v1 = match r1 with
 | Ok x -> x

@@ -36,13 +36,10 @@ public sealed interface Pattern {
         public String toString() { return head + " :: " + tail; }
     }
     
-    record Ok(Pattern value) implements Pattern {
+    record Constructor(String name, java.util.Optional<Pattern> arg) implements Pattern {
         @Override
-        public String toString() { return "Ok " + value; }
-    }
-    
-    record Error(Pattern value) implements Pattern {
-        @Override
-        public String toString() { return "Error " + value; }
+        public String toString() { 
+            return arg.map(a -> name + " " + a).orElse(name);
+        }
     }
 }

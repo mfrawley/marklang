@@ -31,7 +31,8 @@ qual_ident ::= ident '.' ident
 
 (* Keywords *)
 keyword    ::= "let" | "fn" | "in" | "if" | "then" | "else" 
-             | "match" | "with" | "Ok" | "Error" | "print"
+             | "match" | "with" | "type" | "of"
+             | "Ok" | "Error" | "print"
              | "true" | "false" | "import"
 
 (* Operators *)
@@ -53,11 +54,20 @@ module      ::= { import } { declaration } [ main_expr ]
 
 import      ::= "import" string
 
-declaration ::= fn_decl | let_decl
+declaration ::= fn_decl | let_decl | type_decl
 
 fn_decl     ::= "fn" ident { param } '=' expr
 
 let_decl    ::= "let" ident '=' expr
+
+type_decl   ::= "type" ident [ type_params ] '=' [ '|' ] constructor { '|' constructor }
+
+type_params ::= '<' ident { ',' ident } '>'
+
+constructor ::= ident [ "of" type_expr ]
+
+type_expr   ::= ident                          (* Type variable or named type *)
+              | "int" | "double" | "string" | "bool" | "unit"
 
 param       ::= ident
 
@@ -219,7 +229,35 @@ match list with
 | head :: tail -> head
 ```
 
-### Result Type
+### Sum Types (User-Defined Variants)
+```ocaml
+type option<a> =
+  | Some of a
+  | None
+
+type result<ok, err> =
+  | Ok of ok
+  | Error of err
+
+type shape =
+  | Circle of double
+  | Rectangle of double
+  | Square of double
+```
+
+### Using Sum Types
+```ocaml
+type option<a> = Some of a | None
+
+let x = Some 42;
+let y = None;
+
+match x with
+| Some value -> value
+| None -> 0
+```
+
+### Result Type (Built-in, will be moved to userspace)
 ```ocaml
 let result = Ok 42;
 match result with

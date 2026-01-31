@@ -68,6 +68,19 @@ public sealed interface Type {
         }
     }
     
+    record TApp(String name, List<Type> args) implements Type {
+        @Override
+        public String toString() {
+            if (args.isEmpty()) return name;
+            return name + "<" + String.join(", ", args.stream().map(Type::toString).toList()) + ">";
+        }
+    }
+    
+    record TName(String name) implements Type {
+        @Override
+        public String toString() { return name; }
+    }
+    
     default String toJvmType() {
         return switch (this) {
             case TInt t -> "I";
@@ -81,6 +94,8 @@ public sealed interface Type {
             case TNumeric t -> throw new IllegalStateException("Unresolved numeric type variable '" + t.name() + "' during code generation");
             case TFun t -> "Ljava/lang/Object;";
             case TScheme(List<String> vars, Type innerType) -> innerType.toJvmType();
+            case TApp(String name, List<Type> args) -> "Lcom/miniml/" + name + ";";
+            case TName(String name) -> "Lcom/miniml/" + name + ";";
         };
     }
 }

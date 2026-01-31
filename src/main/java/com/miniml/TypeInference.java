@@ -49,6 +49,23 @@ public class TypeInference {
                 Type valueType = infer(env, value);
                 Type scheme = generalize(new HashMap<>(), valueType);
                 env.put(name, scheme);
+            } else if (decl instanceof Module.TopLevel.TypeDef(String typeName, List<String> typeParams, List<Module.Constructor> constructors)) {
+                for (Module.Constructor ctor : constructors) {
+                    Type ctorType;
+                    if (ctor.paramType().isPresent()) {
+                        Type paramType = resolveTypeAnnotation(ctor.paramType().get());
+                        Type resultType = typeParams.isEmpty() ? 
+                            new Type.TName(typeName) : 
+                            new Type.TApp(typeName, typeParams.stream().map(p -> (Type)new Type.TVar(p)).toList());
+                        ctorType = new Type.TFun(paramType, resultType);
+                    } else {
+                        ctorType = typeParams.isEmpty() ? 
+                            new Type.TName(typeName) : 
+                            new Type.TApp(typeName, typeParams.stream().map(p -> (Type)new Type.TVar(p)).toList());
+                    }
+                    Type scheme = typeParams.isEmpty() ? ctorType : new Type.TScheme(typeParams, ctorType);
+                    env.put(ctor.name(), scheme);
+                }
             }
         }
         
@@ -352,14 +369,19 @@ public class TypeInference {
                 yield listType;
             }
             
-            case Expr.Ok(Expr value) -> {
-                Type valueType = infer(localEnv, value);
-                yield new Type.TResult(valueType, freshVar());
-            }
-            
-            case Expr.Error(Expr error) -> {
-                Type errorType = infer(localEnv, error);
-                yield new Type.TResult(freshVar(), errorType);
+            case Expr.Constructor(String name, java.util.Optional<Expr> arg) -> {
+                if (!localEnv.containsKey(name)) {
+                    throw new TypeException("Undefined constructor: " + name);
+                }
+                Type ctorType = instantiate(localEnv.get(name));
+                if (arg.isPresent()) {
+                    Type argType = infer(localEnv, arg.get());
+                    Type resultType = freshVar();
+                    unify(ctorType, new Type.TFun(argType, resultType));
+                    yield resultType;
+                } else {
+                    yield ctorType;
+                }
             }
             
             case Expr.Match(Expr scrutinee, List<Expr.MatchCase> cases) -> {
@@ -432,20 +454,20 @@ public class TypeInference {
                 inferPattern(tail, listType, env);
             }
             
-            case Pattern.Ok(Pattern value) -> {
-                Type okType = freshVar();
-                Type errorType = freshVar();
-                Type resultType = new Type.TResult(okType, errorType);
-                unify(expectedType, resultType);
-                inferPattern(value, okType, env);
-            }
-            
-            case Pattern.Error(Pattern error) -> {
-                Type okType = freshVar();
-                Type errorType = freshVar();
-                Type resultType = new Type.TResult(okType, errorType);
-                unify(expectedType, resultType);
-                inferPattern(error, errorType, env);
+            case Pattern.Constructor(String name, java.util.Optional<Pattern> arg) -> {
+                if (!env.containsKey(name)) {
+                    throw new TypeException("Undefined constructor: " + name);
+                }
+                Type ctorType = instantiate(env.get(name));
+                if (arg.isPresent()) {
+                    Type argType = freshVar();
+                    Type resultType = freshVar();
+                    unify(ctorType, new Type.TFun(argType, resultType));
+                    unify(expectedType, resultType);
+                    inferPattern(arg.get(), argType, env);
+                } else {
+                    unify(expectedType, ctorType);
+                }
             }
         }
     }
@@ -681,6 +703,10 @@ public class TypeInference {
                 new Type.TList(applySubst(subst, elementType));
             default -> type;
         };
+    }
+    
+    private Type resolveTypeAnnotation(Type annotation) {
+        return annotation;
     }
     
     public Type getType(Expr expr) {

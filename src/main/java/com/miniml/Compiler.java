@@ -50,6 +50,11 @@ public class Compiler {
                 }
             } else if (decl instanceof Module.TopLevel.LetDecl letDecl) {
                 letDecls.add(letDecl);
+            } else if (decl instanceof Module.TopLevel.TypeDef(String typeName, List<String> typeParams, List<Module.Constructor> constructors)) {
+                generateSumTypeInterface(typeName);
+                for (Module.Constructor ctor : constructors) {
+                    generateConstructorClass(ctor.name(), ctor.paramType().isPresent(), typeName);
+                }
             }
         }
         
@@ -617,22 +622,18 @@ public class Compiler {
                 }
             }
             
-            case Expr.Ok(Expr value) -> {
-                mv.visitTypeInsn(NEW, "com/miniml/Result$Ok");
+            case Expr.Constructor(String name, java.util.Optional<Expr> arg) -> {
+                String className = "com/miniml/" + name;
+                mv.visitTypeInsn(NEW, className);
                 mv.visitInsn(DUP);
-                compileExpr(value);
-                Type valueType = typeMap.getOrDefault(value, new Type.TInt());
-                boxIfNeeded(valueType);
-                mv.visitMethodInsn(INVOKESPECIAL, "com/miniml/Result$Ok", "<init>", "(Ljava/lang/Object;)V", false);
-            }
-            
-            case Expr.Error(Expr error) -> {
-                mv.visitTypeInsn(NEW, "com/miniml/Result$Error");
-                mv.visitInsn(DUP);
-                compileExpr(error);
-                Type errorType = typeMap.getOrDefault(error, new Type.TString());
-                boxIfNeeded(errorType);
-                mv.visitMethodInsn(INVOKESPECIAL, "com/miniml/Result$Error", "<init>", "(Ljava/lang/Object;)V", false);
+                if (arg.isPresent()) {
+                    compileExpr(arg.get());
+                    Type argType = typeMap.getOrDefault(arg.get(), new Type.TInt());
+                    boxIfNeeded(argType);
+                    mv.visitMethodInsn(INVOKESPECIAL, className, "<init>", "(Ljava/lang/Object;)V", false);
+                } else {
+                    mv.visitMethodInsn(INVOKESPECIAL, className, "<init>", "()V", false);
+                }
             }
             
             case Expr.Cons(Expr head, Expr tail) -> {
@@ -793,38 +794,20 @@ public class Compiler {
                 }
             }
             
-            case Pattern.Ok(Pattern value) -> {
+            case Pattern.Constructor(String name, java.util.Optional<Pattern> arg) -> {
+                String className = "com/miniml/" + name;
                 mv.visitVarInsn(ALOAD, scrutineeLocal);
-                mv.visitTypeInsn(INSTANCEOF, "com/miniml/Result$Ok");
+                mv.visitTypeInsn(INSTANCEOF, className);
                 if (failLabel != null) {
                     mv.visitJumpInsn(IFEQ, failLabel);
                 } else {
                     mv.visitInsn(POP);
                 }
                 
-                if (value instanceof Pattern.Var(String varName)) {
+                if (arg.isPresent() && arg.get() instanceof Pattern.Var(String varName)) {
                     mv.visitVarInsn(ALOAD, scrutineeLocal);
-                    mv.visitTypeInsn(CHECKCAST, "com/miniml/Result$Ok");
-                    mv.visitMethodInsn(INVOKEVIRTUAL, "com/miniml/Result$Ok", "value", "()Ljava/lang/Object;", false);
-                    int varLocal = allocLocal(varName);
-                    mv.visitVarInsn(ASTORE, varLocal);
-                    localTypes.put(varName, "Ljava/lang/Object;");
-                }
-            }
-            
-            case Pattern.Error(Pattern error) -> {
-                mv.visitVarInsn(ALOAD, scrutineeLocal);
-                mv.visitTypeInsn(INSTANCEOF, "com/miniml/Result$Error");
-                if (failLabel != null) {
-                    mv.visitJumpInsn(IFEQ, failLabel);
-                } else {
-                    mv.visitInsn(POP);
-                }
-                
-                if (error instanceof Pattern.Var(String varName)) {
-                    mv.visitVarInsn(ALOAD, scrutineeLocal);
-                    mv.visitTypeInsn(CHECKCAST, "com/miniml/Result$Error");
-                    mv.visitMethodInsn(INVOKEVIRTUAL, "com/miniml/Result$Error", "error", "()Ljava/lang/Object;", false);
+                    mv.visitTypeInsn(CHECKCAST, className);
+                    mv.visitMethodInsn(INVOKEVIRTUAL, className, "value", "()Ljava/lang/Object;", false);
                     int varLocal = allocLocal(varName);
                     mv.visitVarInsn(ASTORE, varLocal);
                     localTypes.put(varName, "Ljava/lang/Object;");
@@ -1027,8 +1010,7 @@ public class Compiler {
             }
             case Expr.ListLit l -> "Ljava/util/List;";
             case Expr.Cons c -> "Ljava/util/List;";
-            case Expr.Ok ok -> "Lcom/miniml/Result;";
-            case Expr.Error err -> "Lcom/miniml/Result;";
+            case Expr.Constructor(String name, java.util.Optional<Expr> arg) -> "Lcom/miniml/" + name + ";";
             case Expr.Match(Expr scrutinee, List<Expr.MatchCase> cases) -> 
                 cases.isEmpty() ? "I" : inferType(cases.get(0).body());
             case Expr.QualifiedVar qv -> "I";
@@ -1074,6 +1056,77 @@ public class Compiler {
             return jvmType.substring(1, jvmType.length() - 1);
         }
         return "java/lang/Object";
+    }
+    
+    private void generateSumTypeInterface(String typeName) {
+        try {
+            ClassWriter ifaceCw = new ClassWriter(0);
+            ifaceCw.visit(V17, ACC_PUBLIC + ACC_ABSTRACT + ACC_INTERFACE, 
+                "com/miniml/" + typeName, null, "java/lang/Object", null);
+            ifaceCw.visitEnd();
+            
+            byte[] classBytes = ifaceCw.toByteArray();
+            String ifaceFileName = "target/com/miniml/" + typeName + ".class";
+            java.nio.file.Path path = java.nio.file.Paths.get(ifaceFileName);
+            java.nio.file.Files.createDirectories(path.getParent());
+            try (FileOutputStream fos = new FileOutputStream(ifaceFileName)) {
+                fos.write(classBytes);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to write sum type interface: " + typeName, e);
+        }
+    }
+    
+    private void generateConstructorClass(String ctorName, boolean hasParam, String typeName) {
+        try {
+            ClassWriter ctorCw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
+            ctorCw.visit(V17, ACC_PUBLIC, "com/miniml/" + ctorName, null, "java/lang/Object", 
+                new String[]{"com/miniml/" + typeName});
+            
+            if (hasParam) {
+                FieldVisitor fv = ctorCw.visitField(ACC_PRIVATE + ACC_FINAL, "value", "Ljava/lang/Object;", null, null);
+                fv.visitEnd();
+                
+                MethodVisitor ctorMv = ctorCw.visitMethod(ACC_PUBLIC, "<init>", "(Ljava/lang/Object;)V", null, null);
+                ctorMv.visitCode();
+                ctorMv.visitVarInsn(ALOAD, 0);
+                ctorMv.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+                ctorMv.visitVarInsn(ALOAD, 0);
+                ctorMv.visitVarInsn(ALOAD, 1);
+                ctorMv.visitFieldInsn(PUTFIELD, "com/miniml/" + ctorName, "value", "Ljava/lang/Object;");
+                ctorMv.visitInsn(RETURN);
+                ctorMv.visitMaxs(0, 0);
+                ctorMv.visitEnd();
+                
+                MethodVisitor getMv = ctorCw.visitMethod(ACC_PUBLIC, "value", "()Ljava/lang/Object;", null, null);
+                getMv.visitCode();
+                getMv.visitVarInsn(ALOAD, 0);
+                getMv.visitFieldInsn(GETFIELD, "com/miniml/" + ctorName, "value", "Ljava/lang/Object;");
+                getMv.visitInsn(ARETURN);
+                getMv.visitMaxs(0, 0);
+                getMv.visitEnd();
+            } else {
+                MethodVisitor ctorMv = ctorCw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
+                ctorMv.visitCode();
+                ctorMv.visitVarInsn(ALOAD, 0);
+                ctorMv.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+                ctorMv.visitInsn(RETURN);
+                ctorMv.visitMaxs(0, 0);
+                ctorMv.visitEnd();
+            }
+            
+            ctorCw.visitEnd();
+            byte[] classBytes = ctorCw.toByteArray();
+            
+            String ctorFileName = "target/com/miniml/" + ctorName + ".class";
+            java.nio.file.Path path = java.nio.file.Paths.get(ctorFileName);
+            java.nio.file.Files.createDirectories(path.getParent());
+            try (FileOutputStream fos = new FileOutputStream(ctorFileName)) {
+                fos.write(classBytes);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to write constructor class: " + ctorName, e);
+        }
     }
     
     private void boxIfNeeded(Type type) {

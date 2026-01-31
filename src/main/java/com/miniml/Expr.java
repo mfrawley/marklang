@@ -25,8 +25,7 @@ public sealed interface Expr {
     record Cons(Expr head, Expr tail) implements Expr {}
     record Match(Expr scrutinee, List<MatchCase> cases) implements Expr {}
     record Unit() implements Expr {}
-    record Ok(Expr value) implements Expr {}
-    record Error(Expr value) implements Expr {}
+    record Constructor(String name, java.util.Optional<Expr> arg) implements Expr {}
 
     record MatchCase(Pattern pattern, Expr body) {}
 

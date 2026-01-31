@@ -20,9 +20,12 @@ public class Parser {
         
         List<Module.TopLevel> declarations = new ArrayList<>();
         while ((peek().type == Token.Type.FN && isTopLevelFn()) || 
-               (peek().type == Token.Type.LET && isTopLevelLet())) {
+               (peek().type == Token.Type.LET && isTopLevelLet()) ||
+               peek().type == Token.Type.TYPE) {
             if (peek().type == Token.Type.FN) {
                 declarations.add(parseTopLevelFn());
+            } else if (peek().type == Token.Type.TYPE) {
+                declarations.add(parseTypeDef());
             } else {
                 declarations.add(parseTopLevelLet());
             }
@@ -134,6 +137,37 @@ public class Parser {
         return new Module.TopLevel.LetDecl(name, value);
     }
     
+    private Module.TopLevel.TypeDef parseTypeDef() {
+        expect(Token.Type.TYPE);
+        String typeName = expect(Token.Type.IDENT).value;
+        
+        List<String> typeParams = new ArrayList<>();
+        if (match(Token.Type.LT)) {
+            do {
+                typeParams.add(expect(Token.Type.IDENT).value);
+            } while (match(Token.Type.COMMA));
+            expect(Token.Type.GT);
+        }
+        
+        expect(Token.Type.ASSIGN);
+        
+        List<Module.Constructor> constructors = new ArrayList<>();
+        if (match(Token.Type.PIPE)) {
+            // Optional leading pipe
+        }
+        
+        do {
+            String constructorName = expect(Token.Type.IDENT).value;
+            Optional<Type> paramType = Optional.empty();
+            if (match(Token.Type.OF)) {
+                paramType = Optional.of(parseType());
+            }
+            constructors.add(new Module.Constructor(constructorName, paramType));
+        } while (match(Token.Type.PIPE));
+        
+        return new Module.TopLevel.TypeDef(typeName, typeParams, constructors);
+    }
+    
     private Module.Param parseParam() {
         if (match(Token.Type.LPAREN)) {
             String paramName = expect(Token.Type.IDENT).value;
@@ -149,6 +183,10 @@ public class Parser {
     
     private Type parseType() {
         Token.Type tokenType = peek().type;
+        if (tokenType == Token.Type.IDENT) {
+            String name = advance().value;
+            return new Type.TVar(name);
+        }
         advance();
         return switch (tokenType) {
             case TYPE_INT -> new Type.TInt();
@@ -383,6 +421,9 @@ public class Parser {
         if (args.isEmpty()) {
             return func;
         }
+        if (func instanceof Expr.Constructor(String name, java.util.Optional<Expr> existingArg) && args.size() == 1) {
+            return new Expr.Constructor(name, java.util.Optional.of(args.get(0)));
+        }
         return new Expr.App(func, args);
     }
 
@@ -408,6 +449,9 @@ public class Parser {
                 String memberName = expect(Token.Type.IDENT).value;
                 return new Expr.QualifiedVar(name, memberName);
             }
+            if (Character.isUpperCase(name.charAt(0))) {
+                return new Expr.Constructor(name, java.util.Optional.empty());
+            }
             return new Expr.Var(name);
         }
         if (match(Token.Type.LPAREN)) {
@@ -418,14 +462,6 @@ public class Parser {
             Expr e = expr();
             expect(Token.Type.RPAREN);
             return e;
-        }
-        if (match(Token.Type.OK)) {
-            Expr value = primaryExpr();
-            return new Expr.Ok(value);
-        }
-        if (match(Token.Type.ERROR)) {
-            Expr value = primaryExpr();
-            return new Expr.Error(value);
         }
         if (match(Token.Type.LBRACKET)) {
             if (match(Token.Type.RBRACKET)) {
@@ -456,14 +492,6 @@ public class Parser {
     }
 
     private Pattern parsePrimaryPattern() {
-        if (match(Token.Type.OK)) {
-            Pattern value = parsePrimaryPattern();
-            return new Pattern.Ok(value);
-        }
-        if (match(Token.Type.ERROR)) {
-            Pattern value = parsePrimaryPattern();
-            return new Pattern.Error(value);
-        }
         if (match(Token.Type.INT)) {
             return new Pattern.IntLit(Integer.parseInt(previous().value));
         }
@@ -478,6 +506,19 @@ public class Parser {
         }
         if (match(Token.Type.IDENT)) {
             String name = previous().value;
+            if (Character.isUpperCase(name.charAt(0))) {
+                if (peek().type == Token.Type.IDENT || 
+                    peek().type == Token.Type.INT ||
+                    peek().type == Token.Type.STRING ||
+                    peek().type == Token.Type.TRUE ||
+                    peek().type == Token.Type.FALSE ||
+                    peek().type == Token.Type.LPAREN ||
+                    peek().type == Token.Type.LBRACKET) {
+                    Pattern arg = parsePrimaryPattern();
+                    return new Pattern.Constructor(name, java.util.Optional.of(arg));
+                }
+                return new Pattern.Constructor(name, java.util.Optional.empty());
+            }
             return new Pattern.Var(name);
         }
         if (match(Token.Type.LBRACKET)) {

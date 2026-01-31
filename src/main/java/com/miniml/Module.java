@@ -9,5 +9,8 @@ public record Module(List<String> imports, List<TopLevel> declarations, Expr mai
     public sealed interface TopLevel {
         record FnDecl(String name, List<Param> params, Optional<Type> returnType, Expr body) implements TopLevel {}
         record LetDecl(String name, Expr value) implements TopLevel {}
+        record TypeDef(String name, List<String> typeParams, List<Constructor> constructors) implements TopLevel {}
     }
+    
+    public record Constructor(String name, Optional<Type> paramType) {}
 }

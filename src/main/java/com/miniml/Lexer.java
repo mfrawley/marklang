@@ -189,10 +189,10 @@ public class Lexer {
             case "else" -> Token.Type.ELSE;
             case "match" -> Token.Type.MATCH;
             case "with" -> Token.Type.WITH;
+            case "type" -> Token.Type.TYPE;
+            case "of" -> Token.Type.OF;
             case "true" -> Token.Type.TRUE;
             case "false" -> Token.Type.FALSE;
-            case "Ok" -> Token.Type.OK;
-            case "Error" -> Token.Type.ERROR;
             case "print" -> Token.Type.PRINT;
             case "java_call" -> Token.Type.JAVA_CALL;
             case "java_instance_call" -> Token.Type.JAVA_INSTANCE_CALL;
