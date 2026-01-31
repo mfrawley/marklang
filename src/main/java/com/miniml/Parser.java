@@ -470,18 +470,23 @@ public class Parser {
             String name = previous().value;
             if (peek().type == Token.Type.SLASH && Character.isUpperCase(name.charAt(0))) {
                 advance();
-                String methodName = expect(Token.Type.IDENT).value;
-                List<Expr> args = new ArrayList<>();
-                while (peek().type == Token.Type.INT || 
-                       peek().type == Token.Type.FLOAT ||
-                       peek().type == Token.Type.STRING ||
-                       peek().type == Token.Type.IDENT ||
-                       peek().type == Token.Type.LPAREN ||
-                       peek().type == Token.Type.LBRACKET) {
-                    args.add(primaryExpr());
-                }
+                String memberName = expect(Token.Type.IDENT).value;
                 String fullClassName = "java.lang." + name;
-                return new Expr.JavaCall(fullClassName, methodName, args);
+                
+                if (Character.isUpperCase(memberName.charAt(0))) {
+                    return new Expr.JavaStaticField(fullClassName, memberName);
+                } else {
+                    List<Expr> args = new ArrayList<>();
+                    while (peek().type == Token.Type.INT || 
+                           peek().type == Token.Type.FLOAT ||
+                           peek().type == Token.Type.STRING ||
+                           peek().type == Token.Type.IDENT ||
+                           peek().type == Token.Type.LPAREN ||
+                           peek().type == Token.Type.LBRACKET) {
+                        args.add(primaryExpr());
+                    }
+                    return new Expr.JavaCall(fullClassName, memberName, args);
+                }
             }
             if (match(Token.Type.DOT)) {
                 String memberName = expect(Token.Type.IDENT).value;

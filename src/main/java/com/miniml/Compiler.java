@@ -615,6 +615,13 @@ public class Compiler {
                 mv.visitMethodInsn(INVOKEVIRTUAL, jvmClassName, javaInstanceCall.methodName(), descriptor, false);
             }
             
+            case Expr.JavaStaticField(String className, String fieldName) -> {
+                String jvmClassName = className.replace('.', '/');
+                Type fieldType = typeMap.getOrDefault(expr, new Type.TInt());
+                String descriptor = fieldType.toJvmType();
+                mv.visitFieldInsn(GETSTATIC, jvmClassName, fieldName, descriptor);
+            }
+            
             case Expr.ListLit(List<Expr> elements) -> {
                 mv.visitTypeInsn(NEW, "java/util/ArrayList");
                 mv.visitInsn(DUP);
@@ -1020,6 +1027,10 @@ public class Compiler {
                 inferJavaCallReturnType(className, methodName);
             case Expr.JavaInstanceCall(String className, String methodName, Expr inst, List<Expr> args) -> 
                 inferJavaInstanceCallReturnType(className, methodName);
+            case Expr.JavaStaticField(String className, String fieldName) -> {
+                Type fieldType = typeMap.getOrDefault(expr, new Type.TInt());
+                yield fieldType.toJvmType();
+            }
             case Expr.App(Expr func, List<Expr> args) -> {
                 if (func instanceof Expr.Var(String name)) {
                     yield "I";

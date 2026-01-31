@@ -362,6 +362,10 @@ public class TypeInference {
                 yield inferJavaInstanceCallType(instanceType, methodName);
             }
             
+            case Expr.JavaStaticField(String className, String fieldName) -> {
+                yield inferJavaStaticFieldType(className, fieldName);
+            }
+            
             case Expr.ListLit(List<Expr> elements) -> {
                 if (elements.isEmpty()) {
                     yield new Type.TList(freshVar());
@@ -527,6 +531,16 @@ public class TypeInference {
         }
         
         return freshVar();
+    }
+    
+    private Type inferJavaStaticFieldType(String className, String fieldName) {
+        try {
+            Class<?> clazz = Class.forName(className);
+            java.lang.reflect.Field field = clazz.getField(fieldName);
+            return javaTypeToMiniML(field.getType());
+        } catch (ClassNotFoundException | NoSuchFieldException e) {
+            return freshVar();
+        }
     }
     
     private Type javaTypeToMiniML(Class<?> javaType) {
