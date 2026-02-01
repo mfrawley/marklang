@@ -81,6 +81,14 @@ public class Repl {
                     System.out.println(session.disassemble(result.bytecode));
                 }
             }
+            case ":ast" -> {
+                if (arg.isEmpty()) {
+                    System.err.println("Usage: :ast <expression>");
+                } else {
+                    Expr ast = session.parseExpr(arg);
+                    System.out.println(ast);
+                }
+            }
             default -> System.err.println("Unknown command: " + command + ". Type :help for available commands.");
         }
     }
@@ -89,6 +97,7 @@ public class Repl {
         System.out.println("Available commands:");
         System.out.println("  <expression>           Evaluate and print result");
         System.out.println("  :type <expression>     Show inferred type");
+        System.out.println("  :ast <expression>      Show AST");
         System.out.println("  :bytecode <expression> Show JVM bytecode");
         System.out.println("  :help                  Show this help");
         System.out.println("  :quit, :exit           Exit REPL");

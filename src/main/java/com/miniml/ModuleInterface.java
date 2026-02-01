@@ -73,6 +73,9 @@ public class ModuleInterface {
             case Type.TVar(String name) -> name;
             case Type.TNumeric(String name) -> "numeric";
             case Type.TScheme(List<String> vars, Type innerType) -> typeToString(innerType);
+            case Type.TApp(String name, List<Type> args) -> name;
+            case Type.TName(String name) -> name;
+            case Type.TBoxed() -> "boxed";
         };
     }
     

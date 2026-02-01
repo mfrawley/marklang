@@ -17,3 +17,7 @@ fn tan (x: double) : double = java_call "java.lang.Math" "tan" x;
 fn log (x: double) : double = java_call "java.lang.Math" "log" x;
 
 fn exp (x: double) : double = java_call "java.lang.Math" "exp" x;
+
+fn add (x: double): double = x + x;
+
+fn add (x: int): int = x + x;

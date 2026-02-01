@@ -715,6 +715,10 @@ public class TypeInference {
         };
     }
     
+    public Type fullyResolve(Type type) {
+        return fullyPrune(type);
+    }
+    
     private boolean containsUnresolvedVars(Type type) {
         return switch (type) {
             case Type.TVar v -> true;
