@@ -97,7 +97,7 @@ class ParserTest {
         Expr expr = parse("if true then 1 else 0");
         assertTrue(expr instanceof Expr.If);
         Expr.If ifExpr = (Expr.If) expr;
-        assertTrue(ifExpr.cond() instanceof Expr.Var);
+        assertTrue(ifExpr.cond() instanceof Expr.BoolLit);
         assertTrue(ifExpr.thenBranch() instanceof Expr.IntLit);
         assertTrue(ifExpr.elseBranch() instanceof Expr.IntLit);
     }
@@ -126,6 +126,34 @@ class ParserTest {
         assertTrue(expr instanceof Expr.Print);
         Expr.Print print = (Expr.Print) expr;
         assertTrue(print.value() instanceof Expr.StringLit);
+    }
+    
+    @Test
+    void testMathMaxApplication() {
+        Expr expr = parse("Math.max 42 17");
+        assertTrue(expr instanceof Expr.App);
+        Expr.App app = (Expr.App) expr;
+        assertTrue(app.func() instanceof Expr.QualifiedVar);
+        Expr.QualifiedVar qvar = (Expr.QualifiedVar) app.func();
+        assertEquals("Math", qvar.moduleName());
+        assertEquals("max", qvar.name());
+        assertEquals(2, app.args().size());
+        assertTrue(app.args().get(0) instanceof Expr.IntLit);
+        assertTrue(app.args().get(1) instanceof Expr.IntLit);
+        assertEquals(42, ((Expr.IntLit) app.args().get(0)).value());
+        assertEquals(17, ((Expr.IntLit) app.args().get(1)).value());
+    }
+    
+    @Test
+    void testArithmeticNotFunctionApplication() {
+        Expr expr = parse("10 / 2");
+        assertTrue(expr instanceof Expr.BinOp);
+        Expr.BinOp binOp = (Expr.BinOp) expr;
+        assertEquals(Expr.Op.DIV, binOp.op());
+        assertTrue(binOp.left() instanceof Expr.IntLit);
+        assertTrue(binOp.right() instanceof Expr.IntLit);
+        assertEquals(10, ((Expr.IntLit) binOp.left()).value());
+        assertEquals(2, ((Expr.IntLit) binOp.right()).value());
     }
     
     @Test

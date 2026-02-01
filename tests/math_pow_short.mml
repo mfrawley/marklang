@@ -1,4 +1,6 @@
 # Test: Math.pow with new syntax
+import Math
+
 let result = Math.pow 5.0 2.0 in
 let diff = result - 25.0 in
 let abs_diff = if diff < 0.0 then 0.0 - diff else diff in

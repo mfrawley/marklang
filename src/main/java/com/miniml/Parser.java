@@ -412,7 +412,8 @@ public class Parser {
         Expr func = primaryExpr();
         
         while (true) {
-            if (match(Token.Type.SLASH)) {
+            if (peek().type == Token.Type.SLASH && peekAhead(1).type == Token.Type.IDENT) {
+                advance();
                 String methodName = expect(Token.Type.IDENT).value;
                 List<Expr> args = new ArrayList<>();
                 while (peek().type == Token.Type.INT || 
@@ -424,11 +425,12 @@ public class Parser {
                     args.add(primaryExpr());
                 }
                 func = new Expr.JavaInstanceCall("java.lang.Object", methodName, func, args);
-            } else if (peek().type == Token.Type.INT || 
-                       peek().type == Token.Type.FLOAT ||
-                       peek().type == Token.Type.STRING ||
-                       peek().type == Token.Type.IDENT ||
-                       peek().type == Token.Type.LPAREN) {
+            } else if (canBeFunction(func) && 
+                (peek().type == Token.Type.INT || 
+                 peek().type == Token.Type.FLOAT ||
+                 peek().type == Token.Type.STRING ||
+                 peek().type == Token.Type.IDENT ||
+                 peek().type == Token.Type.LPAREN)) {
                 List<Expr> args = new ArrayList<>();
                 while (peek().type == Token.Type.INT || 
                        peek().type == Token.Type.FLOAT ||
@@ -448,6 +450,16 @@ public class Parser {
         }
         
         return func;
+    }
+    
+    private boolean canBeFunction(Expr e) {
+        return e instanceof Expr.Var ||
+               e instanceof Expr.QualifiedVar ||
+               e instanceof Expr.Constructor ||
+               e instanceof Expr.Lambda ||
+               e instanceof Expr.App ||
+               e instanceof Expr.JavaCall ||
+               e instanceof Expr.JavaStaticField;
     }
 
     private Expr primaryExpr() {
@@ -621,8 +633,9 @@ public class Parser {
     }
     
     private Token peekAhead(int n) {
-        if (pos + n - 1 < tokens.size()) {
-            return tokens.get(pos + n - 1);
+        int idx = pos + n;
+        if (idx < tokens.size()) {
+            return tokens.get(idx);
         }
         return tokens.get(tokens.size() - 1);
     }

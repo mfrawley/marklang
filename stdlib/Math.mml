@@ -18,6 +18,8 @@ fn log (x: double) : double = java_call "java.lang.Math" "log" x;
 
 fn exp (x: double) : double = java_call "java.lang.Math" "exp" x;
 
+fn pow (x: double) (y: double) : double = java_call "java.lang.Math" "pow" x y;
+
 fn add (x: double): double = x + x;
 
 fn add (x: int): int = x + x;

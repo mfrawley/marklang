@@ -4,8 +4,9 @@ import java.util.*;
 
 public class TypeInference {
     private int nextVarId = 0;
-    private Map<Expr, Type> typeMap = new HashMap<>();
+    private Map<Expr, Type> typeMap = new IdentityHashMap<>();
     private Map<String, Type> env = new HashMap<>();
+    private Map<String, List<Type>> overloads = new HashMap<>();
     private Map<String, Set<Type>> instantiations = new HashMap<>();
     private String currentFilename = "<unknown>";
     
@@ -42,8 +43,21 @@ public class TypeInference {
         
         for (Module.TopLevel decl : module.declarations()) {
             if (decl instanceof Module.TopLevel.FnDecl(String name, List<Module.Param> params, var returnType, Expr body)) {
-                Type fnType = inferTopLevelFn(params, returnType, body);
+                TypeInference isolatedTI = new TypeInference();
+                isolatedTI.env.putAll(this.env);
+                isolatedTI.currentFilename = this.currentFilename;
+                
+                Type fnType = isolatedTI.inferTopLevelFn(params, returnType, body);
                 Type scheme = generalize(new HashMap<>(), fnType);
+                
+                isolatedTI.pruneTypeMap();
+                this.typeMap.putAll(isolatedTI.typeMap);
+                
+                if (!overloads.containsKey(name)) {
+                    overloads.put(name, new ArrayList<>());
+                }
+                overloads.get(name).add(scheme);
+                
                 env.put(name, scheme);
                 
                 instantiations.put(name, new HashSet<>());
@@ -79,7 +93,7 @@ public class TypeInference {
         finalizeInstantiations();
         pruneTypeMap();
         
-        return result;
+        return fullyResolve(result);
     }
     
     public void loadModuleInterface(String moduleName) {
@@ -114,7 +128,7 @@ public class TypeInference {
         instantiations = finalized;
     }
     
-    private Type inferTopLevelFn(List<Module.Param> params, Optional<Type> returnTypeAnnotation, Expr body) throws TypeException {
+    Type inferTopLevelFn(List<Module.Param> params, Optional<Type> returnTypeAnnotation, Expr body) throws TypeException {
         Map<String, Type> localEnv = new HashMap<>(env);
         List<Type> paramTypes = new ArrayList<>();
         
@@ -248,13 +262,20 @@ public class TypeInference {
                     yield boxedType;
                 }
                 
-                Type funcType = infer(localEnv, func);
-                Type resultType = funcType;
-                
                 List<Type> argTypes = new ArrayList<>();
                 for (Expr arg : args) {
-                    Type argType = infer(localEnv, arg);
-                    argTypes.add(argType);
+                    argTypes.add(infer(localEnv, arg));
+                }
+                
+                Type funcType;
+                if (funcName != null && overloads.containsKey(funcName) && overloads.get(funcName).size() > 1) {
+                    funcType = resolveOverload(funcName, argTypes);
+                } else {
+                    funcType = infer(localEnv, func);
+                }
+                
+                Type resultType = funcType;
+                for (Type argType : argTypes) {
                     Type freshResult = freshVar();
                     unify(resultType, new Type.TFun(argType, freshResult));
                     resultType = fullyPrune(freshResult);
@@ -320,7 +341,7 @@ public class TypeInference {
                         Type numericType = freshNumeric();
                         unify(leftType, numericType);
                         unify(rightType, numericType);
-                        yield numericType;
+                        yield prune(numericType);
                     }
                     case EQ, NE, LT, GT, LE, GE -> {
                         unify(leftType, rightType);
@@ -348,10 +369,11 @@ public class TypeInference {
             }
             
             case Expr.JavaCall(String className, String methodName, List<Expr> args) -> {
+                List<Type> argTypes = new ArrayList<>();
                 for (Expr arg : args) {
-                    infer(localEnv, arg);
+                    argTypes.add(infer(localEnv, arg));
                 }
-                yield inferJavaCallType(className, methodName);
+                yield inferJavaCallType(className, methodName, argTypes);
             }
             
             case Expr.JavaInstanceCall(String className, String methodName, Expr instance, List<Expr> args) -> {
@@ -430,7 +452,7 @@ public class TypeInference {
     }
     
     public void pruneTypeMap() {
-        Map<Expr, Type> prunedMap = new HashMap<>();
+        Map<Expr, Type> prunedMap = new IdentityHashMap<>();
         for (Map.Entry<Expr, Type> entry : typeMap.entrySet()) {
             prunedMap.put(entry.getKey(), fullyPrune(entry.getValue()));
         }
@@ -489,19 +511,34 @@ public class TypeInference {
         }
     }
     
-    private Type inferJavaCallType(String className, String methodName) {
+    private Type inferJavaCallType(String className, String methodName, List<Type> argTypes) {
         try {
             Class<?> clazz = Class.forName(className);
-            for (java.lang.reflect.Method method : clazz.getDeclaredMethods()) {
+            
+            for (java.lang.reflect.Method method : clazz.getMethods()) {
                 if (method.getName().equals(methodName) && 
                     java.lang.reflect.Modifier.isStatic(method.getModifiers()) &&
-                    java.lang.reflect.Modifier.isPublic(method.getModifiers())) {
-                    return javaTypeToMiniML(method.getReturnType());
+                    method.getParameterCount() == argTypes.size()) {
+                    
+                    Class<?>[] paramTypes = method.getParameterTypes();
+                    boolean matches = true;
+                    for (int i = 0; i < paramTypes.length; i++) {
+                        Type miniMLParamType = javaTypeToMiniML(paramTypes[i]);
+                        Type argType = fullyPrune(argTypes.get(i));
+                        if (!miniMLParamType.equals(argType)) {
+                            matches = false;
+                            break;
+                        }
+                    }
+                    
+                    if (matches) {
+                        return javaTypeToMiniML(method.getReturnType());
+                    }
                 }
             }
         } catch (ClassNotFoundException e) {
         }
-        return freshVar();
+        return new Type.TInt();
     }
     
     private Type inferJavaInstanceCallType(Type instanceType, String methodName) {
@@ -546,7 +583,13 @@ public class TypeInference {
     private Type javaTypeToMiniML(Class<?> javaType) {
         if (javaType == int.class || javaType == Integer.class) {
             return new Type.TInt();
+        } else if (javaType == long.class || javaType == Long.class) {
+            return new Type.TInt();
+        } else if (javaType == short.class || javaType == Short.class) {
+            return new Type.TInt();
         } else if (javaType == double.class || javaType == Double.class) {
+            return new Type.TDouble();
+        } else if (javaType == float.class || javaType == Float.class) {
             return new Type.TDouble();
         } else if (javaType == boolean.class || javaType == Boolean.class) {
             return new Type.TBool();
@@ -565,6 +608,43 @@ public class TypeInference {
     
     private Type freshNumeric() {
         return new Type.TNumeric("n" + (nextVarId++));
+    }
+    
+    private Type resolveOverload(String funcName, List<Type> argTypes) throws TypeException {
+        List<Type> candidates = overloads.get(funcName);
+        if (candidates == null || candidates.isEmpty()) {
+            throw new TypeException("No overloads found for function: " + funcName);
+        }
+        
+        for (Type candidate : candidates) {
+            int savedVarId = nextVarId;
+            Type candidateInst = instantiate(candidate);
+            
+            Type checkType = candidateInst;
+            boolean matches = true;
+            for (Type argType : argTypes) {
+                if (checkType instanceof Type.TFun(Type paramType, Type resultType)) {
+                    try {
+                        unify(paramType, argType);
+                        checkType = resultType;
+                    } catch (TypeException e) {
+                        matches = false;
+                        break;
+                    }
+                } else {
+                    matches = false;
+                    break;
+                }
+            }
+            
+            if (matches) {
+                return candidateInst;
+            }
+            
+            nextVarId = savedVarId;
+        }
+        
+        throw new TypeException("No matching overload found for " + funcName + " with argument types: " + argTypes);
     }
     
     private Type instantiate(Type type) {
@@ -707,10 +787,13 @@ public class TypeInference {
     private Type fullyPrune(Type type) {
         Type pruned = prune(type);
         return switch (pruned) {
+            case Type.TNumeric n -> new Type.TInt();
             case Type.TFun(Type param, Type result) ->
                 new Type.TFun(fullyPrune(param), fullyPrune(result));
             case Type.TList(Type elem) ->
                 new Type.TList(fullyPrune(elem));
+            case Type.TResult(Type ok, Type err) ->
+                new Type.TResult(fullyPrune(ok), fullyPrune(err));
             default -> pruned;
         };
     }

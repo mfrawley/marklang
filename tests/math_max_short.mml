@@ -1,2 +1,4 @@
 # Test: Math.max with new syntax
-Math.max 42 17 == 42
+import Math
+
+Math.max 42.0 17.0 == 42.0

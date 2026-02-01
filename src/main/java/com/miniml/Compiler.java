@@ -841,7 +841,6 @@ public class Compiler {
     
     private String inferJavaMethodDescriptor(Expr javaCallExpr, String className, String methodName, List<Expr> args) {
         StringBuilder desc = new StringBuilder("(");
-
         for (Expr arg : args) {
             Type argType = typeMap.getOrDefault(arg, new Type.TInt());
             desc.append(argType.toJvmType());
