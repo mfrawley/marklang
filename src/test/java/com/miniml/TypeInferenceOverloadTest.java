@@ -43,7 +43,7 @@ class TypeInferenceOverloadTest {
         
         Module.Param param = new Module.Param("x", Optional.of(new Type.TDouble()));
         
-        Type fnType = ti.inferTopLevelFn(List.of(param), Optional.empty(), body);
+        Type fnType = ti.inferTopLevelFn("testFn", List.of(param), Optional.empty(), body);
         
         Type bodyType = ti.getTypeMap().get(body);
         Type prunedBodyType = ti.fullyResolve(bodyType);
@@ -86,7 +86,7 @@ class TypeInferenceOverloadTest {
         
         Module.Param param = new Module.Param("x", Optional.of(new Type.TInt()));
         
-        Type fnType = ti.inferTopLevelFn(List.of(param), Optional.empty(), body);
+        Type fnType = ti.inferTopLevelFn("testFn", List.of(param), Optional.empty(), body);
         
         Type bodyType = ti.getTypeMap().get(body);
         Type prunedBodyType = ti.fullyResolve(bodyType);

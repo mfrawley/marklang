@@ -50,7 +50,7 @@ public class TypeInference {
                 isolatedTI.env.putAll(this.env);
                 isolatedTI.currentFilename = this.currentFilename;
                 
-                Type fnType = isolatedTI.inferTopLevelFn(params, returnType, body);
+                Type fnType = isolatedTI.inferTopLevelFn(name, params, returnType, body);
                 Type scheme = generalize(new HashMap<>(), fnType);
                 
                 isolatedTI.pruneTypeMap();
@@ -131,9 +131,12 @@ public class TypeInference {
         instantiations = finalized;
     }
     
-    Type inferTopLevelFn(List<Module.Param> params, Optional<Type> returnTypeAnnotation, Expr body) throws TypeException {
+    Type inferTopLevelFn(String name, List<Module.Param> params, Optional<Type> returnTypeAnnotation, Expr body) throws TypeException {
         Map<String, Type> localEnv = new HashMap<>(env);
         List<Type> paramTypes = new ArrayList<>();
+        
+        Type fnType = freshVar();
+        localEnv.put(name, fnType);
         
         for (Module.Param param : params) {
             Type paramType;
@@ -153,12 +156,14 @@ public class TypeInference {
             resultType = returnTypeAnnotation.get();
         }
         
-        Type fnType = resultType;
+        Type constructedFnType = resultType;
         for (int i = paramTypes.size() - 1; i >= 0; i--) {
-            fnType = new Type.TFun(paramTypes.get(i), fnType);
+            constructedFnType = new Type.TFun(paramTypes.get(i), constructedFnType);
         }
         
-        return fnType;
+        unify(fnType, constructedFnType);
+        
+        return constructedFnType;
     }
     
     private Type inferFn(List<String> params, Expr body, Map<String, Type> parentEnv) throws TypeException {
@@ -221,10 +226,12 @@ public class TypeInference {
                 Map<String, Type> newEnv = new HashMap<>(localEnv);
                 newEnv.put(name, fnType);
                 
-                Type inferredFnType = inferFn(params, value, localEnv);
+                Type inferredFnType = inferFn(params, value, newEnv);
                 unify(fnType, inferredFnType);
                 
-                Type scheme = generalize(localEnv, fnType);
+                Type prunedFnType = fullyPrune(fnType);
+                
+                Type scheme = generalize(localEnv, prunedFnType);
                 newEnv.put(name, scheme);
                 yield infer(newEnv, body);
             }

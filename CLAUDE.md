@@ -51,7 +51,7 @@ java -cp "target/classes:target" <ClassName>
 Source (.mml) 
   → Lexer (Lexer.java)
   → Parser (Parser.java) 
-  → AST (Expr.java, Module.java, Pattern.java)
+  → AST (expr/* package, Module.java, Pattern.java)
   → Type Inference (TypeInference.java)
   → Bytecode Generation (Compiler.java)
   → JVM Class (.class)
@@ -64,9 +64,13 @@ Source (.mml)
 - **TypeInference.java**: Hindley-Milner type inference with unification
 - **Compiler.java**: ASM-based bytecode generation
 - **Type.java**: Type system representation
-- **Expr.java**: Expression AST nodes
+- **expr/* package**: Expression AST nodes (distributed package structure)
+  - Each expression type is a separate class implementing `Expr` interface
+  - Each has an `eval(Environment env)` method for interpretation
+  - Import with: `import com.miniml.expr.*;`
 - **Pattern.java**: Pattern matching AST nodes
 - **Module.java**: Module-level declarations
+- **Environment.java**: Runtime environment for expression evaluation
 
 ### Type System
 
@@ -97,11 +101,25 @@ Located in `src/main/java/com/miniml/`:
 
 ### Adding a New Expression Type
 
-1. Add record to `Expr.java`
-2. Add parsing in `Parser.java`
-3. Add type inference in `TypeInference.java`
-4. Add compilation in `Compiler.java`
-5. Add tests in `tests/`
+1. Create a new class in `src/main/java/com/miniml/expr/` implementing `Expr` interface
+2. Add an `eval(Environment env)` method for interpretation
+3. Add parsing in `Parser.java` (import from `com.miniml.expr.*`)
+4. Add type inference in `TypeInference.java` (pattern match on the new type)
+5. Add compilation in `Compiler.java` (pattern match on the new type)
+6. Add tests in `tests/`
+
+Example:
+```java
+package com.miniml.expr;
+import com.miniml.Environment;
+
+public record NewExpr(/* fields */) implements Expr {
+    @Override
+    public Object eval(Environment env) {
+        // Implementation
+    }
+}
+```
 
 ### Pattern Matching
 
@@ -155,10 +173,23 @@ The compiler uses `ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS` for au
 2. **Type mismatches**: Check `typeMap` has correct types. Pattern-bound variables from Result are stored as `Object`.
 3. **Unboxing**: Variables stored as `Object` need explicit unboxing (CHECKCAST + intValue/doubleValue) before use in operations.
 
+## Planned Features / TODO
+
+Currently no major pending tasks. The expr/ package migration is complete:
+- ✅ All 126 Maven tests passing
+- ✅ All 52 integration tests passing
+
+Future work ideas:
+- Lambda syntax (e.g., `\x y -> x + y`) - Lambda class exists but no surface syntax yet
+- Better polymorphic recursion support
+- Nested pattern matching for Result types
+- REPL improvements
+
 ## Contributing
 
 When making changes:
 1. Update GRAMMAR.md if syntax changes
 2. Add tests for new features
-3. Ensure all tests pass: `./run_tests.sh`
-4. Update this document if architecture changes
+3. Ensure all tests pass: `./run_tests.sh` and `mvn test`
+4. Compile stdlib modules if needed: `java -cp ... com.miniml.Main stdlib/Math.mml`
+5. Update this document if architecture changes

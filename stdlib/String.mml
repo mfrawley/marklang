@@ -1,5 +1,5 @@
-fn length s = java_instance_call "java.lang.String" "length" s;
+fn length (s: string) : int = java_instance_call "java.lang.String" "length" s;
 
-fn toUpperCase s = java_instance_call "java.lang.String" "toUpperCase" s;
+fn toUpperCase (s: string) : string = java_instance_call "java.lang.String" "toUpperCase" s;
 
-fn toLowerCase s = java_instance_call "java.lang.String" "toLowerCase" s;
+fn toLowerCase (s: string) : string = java_instance_call "java.lang.String" "toLowerCase" s;
