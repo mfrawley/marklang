@@ -20,6 +20,7 @@ class LanguageTest {
         byte[] bytecode = compiler.compileModule(module);
         
         TestClassLoader classLoader = new TestClassLoader();
+        classLoader.addClassPath("target");
         Class<?> clazz = classLoader.defineClass("TestClass", bytecode);
         Method main = clazz.getMethod("main", String[].class);
         main.invoke(null, (Object) new String[0]);
@@ -36,7 +37,7 @@ class LanguageTest {
     void testMathMaxShort() throws Exception {
         compileAndRun("""
                 import Math
-                Math.max 42 17 == 42""");
+                Math.max 42.0 17.0 == 42.0""");
     }
     
     @Test
@@ -62,8 +63,29 @@ class LanguageTest {
     }
     
     static class TestClassLoader extends ClassLoader {
+        private String classPath;
+        
+        public void addClassPath(String path) {
+            this.classPath = path;
+        }
+        
         public Class<?> defineClass(String name, byte[] bytecode) {
             return defineClass(name, bytecode, 0, bytecode.length);
+        }
+        
+        @Override
+        protected Class<?> findClass(String name) throws ClassNotFoundException {
+            if (classPath != null) {
+                try {
+                    java.nio.file.Path path = java.nio.file.Path.of(classPath, name + ".class");
+                    if (java.nio.file.Files.exists(path)) {
+                        byte[] bytes = java.nio.file.Files.readAllBytes(path);
+                        return defineClass(name, bytes, 0, bytes.length);
+                    }
+                } catch (Exception e) {
+                }
+            }
+            return super.findClass(name);
         }
     }
 }
