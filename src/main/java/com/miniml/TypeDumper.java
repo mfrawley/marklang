@@ -2,6 +2,8 @@ package com.miniml;
 
 import java.util.Map;
 import java.util.Set;
+import com.miniml.expr.*;
+import static com.miniml.expr.Expr.Op;
 
 public class TypeDumper {
     
@@ -38,19 +40,19 @@ public class TypeDumper {
         Type type = typeMap.get(expr);
         
         switch (expr) {
-            case Expr.IntLit(int value) -> 
+            case IntLit(int value) -> 
                 System.out.println(prefix + value + " : " + type);
-            case Expr.FloatLit(double value) ->
+            case FloatLit(double value) ->
                 System.out.println(prefix + value + " : " + type);
-            case Expr.Var(String name) ->
+            case Var(String name) ->
                 System.out.println(prefix + name + " : " + type);
-            case Expr.BinOp(Expr.Op op, Expr left, Expr right) -> {
+            case BinOp(Expr.Op op, Expr left, Expr right) -> {
                 System.out.println(prefix + "(" + op + ")");
                 dumpExpr(left, typeMap, indent + 2);
                 dumpExpr(right, typeMap, indent + 2);
                 System.out.println(prefix + "  => " + type);
             }
-            case Expr.App(Expr func, var args) -> {
+            case App(Expr func, var args) -> {
                 System.out.println(prefix + "App:");
                 dumpExpr(func, typeMap, indent + 2);
                 for (Expr arg : args) {
@@ -58,7 +60,7 @@ public class TypeDumper {
                 }
                 System.out.println(prefix + "  => " + type);
             }
-            case Expr.Print(Expr value) -> {
+            case Print(Expr value) -> {
                 System.out.println(prefix + "print:");
                 dumpExpr(value, typeMap, indent + 2);
                 System.out.println(prefix + "  => " + type);

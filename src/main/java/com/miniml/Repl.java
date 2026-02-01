@@ -6,6 +6,7 @@ import org.jline.reader.EndOfFileException;
 import org.jline.reader.UserInterruptException;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
+import com.miniml.expr.Expr;
 
 import java.io.IOException;
 

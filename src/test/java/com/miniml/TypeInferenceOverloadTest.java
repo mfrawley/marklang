@@ -1,4 +1,6 @@
 package com.miniml;
+import com.miniml.expr.*;
+import static com.miniml.expr.Expr.Op;
 
 import org.junit.jupiter.api.Test;
 import java.util.List;
@@ -11,8 +13,8 @@ class TypeInferenceOverloadTest {
     void testDoubleParameterInfersDoubleAdditionIsolated() throws TypeInference.TypeException {
         TypeInference ti = new TypeInference();
         
-        Expr x = new Expr.Var("x");
-        Expr body = new Expr.BinOp(Expr.Op.ADD, x, x);
+        Expr x = new Var("x");
+        Expr body = new BinOp(Op.ADD, x, x);
         
         Module.Param param = new Module.Param("x", Optional.of(new Type.TDouble()));
         List<Module.TopLevel> decls = List.of(
@@ -36,8 +38,8 @@ class TypeInferenceOverloadTest {
     void testDoubleParameterInfersDoubleAddition() throws TypeInference.TypeException {
         TypeInference ti = new TypeInference();
         
-        Expr x = new Expr.Var("x");
-        Expr body = new Expr.BinOp(Expr.Op.ADD, x, x);
+        Expr x = new Var("x");
+        Expr body = new BinOp(Op.ADD, x, x);
         
         Module.Param param = new Module.Param("x", Optional.of(new Type.TDouble()));
         
@@ -54,8 +56,8 @@ class TypeInferenceOverloadTest {
     void testIntParameterInfersIntAdditionIsolated() throws TypeInference.TypeException {
         TypeInference ti = new TypeInference();
         
-        Expr x = new Expr.Var("x");
-        Expr body = new Expr.BinOp(Expr.Op.ADD, x, x);
+        Expr x = new Var("x");
+        Expr body = new BinOp(Op.ADD, x, x);
         
         Module.Param param = new Module.Param("x", Optional.of(new Type.TInt()));
         List<Module.TopLevel> decls = List.of(
@@ -79,8 +81,8 @@ class TypeInferenceOverloadTest {
     void testIntParameterInfersIntAddition() throws TypeInference.TypeException {
         TypeInference ti = new TypeInference();
         
-        Expr x = new Expr.Var("x");
-        Expr body = new Expr.BinOp(Expr.Op.ADD, x, x);
+        Expr x = new Var("x");
+        Expr body = new BinOp(Op.ADD, x, x);
         
         Module.Param param = new Module.Param("x", Optional.of(new Type.TInt()));
         
@@ -97,12 +99,12 @@ class TypeInferenceOverloadTest {
     void testTwoSeparateFunctionsPreserveTypes() throws TypeInference.TypeException {
         TypeInference ti = new TypeInference();
         
-        Expr xDouble = new Expr.Var("x");
-        Expr bodyDouble = new Expr.BinOp(Expr.Op.ADD, xDouble, xDouble);
+        Expr xDouble = new Var("x");
+        Expr bodyDouble = new BinOp(Op.ADD, xDouble, xDouble);
         Module.Param paramDouble = new Module.Param("x", Optional.of(new Type.TDouble()));
         
-        Expr xInt = new Expr.Var("x");
-        Expr bodyInt = new Expr.BinOp(Expr.Op.ADD, xInt, xInt);
+        Expr xInt = new Var("x");
+        Expr bodyInt = new BinOp(Op.ADD, xInt, xInt);
         Module.Param paramInt = new Module.Param("x", Optional.of(new Type.TInt()));
         
         System.out.println("bodyDouble identity: " + System.identityHashCode(bodyDouble));
@@ -145,16 +147,16 @@ class TypeInferenceOverloadTest {
     void testOverloadResolution() throws TypeInference.TypeException {
         TypeInference ti = new TypeInference();
         
-        Expr xDouble = new Expr.Var("x");
-        Expr bodyDouble = new Expr.BinOp(Expr.Op.ADD, xDouble, xDouble);
+        Expr xDouble = new Var("x");
+        Expr bodyDouble = new BinOp(Op.ADD, xDouble, xDouble);
         Module.Param paramDouble = new Module.Param("x", Optional.of(new Type.TDouble()));
         
         List<Module.TopLevel> decls = List.of(
             new Module.TopLevel.FnDecl("add", List.of(paramDouble), Optional.of(new Type.TDouble()), bodyDouble)
         );
         
-        Expr intArg = new Expr.IntLit(5);
-        Expr call = new Expr.App(new Expr.Var("add"), List.of(intArg));
+        Expr intArg = new IntLit(5);
+        Expr call = new App(new Var("add"), List.of(intArg));
         
         Module module = new Module(List.of(), decls, call);
         
@@ -172,16 +174,16 @@ class TypeInferenceOverloadTest {
     void testOverloadWithMatchingType() throws TypeInference.TypeException {
         TypeInference ti = new TypeInference();
         
-        Expr xDouble = new Expr.Var("x");
-        Expr bodyDouble = new Expr.BinOp(Expr.Op.ADD, xDouble, xDouble);
+        Expr xDouble = new Var("x");
+        Expr bodyDouble = new BinOp(Op.ADD, xDouble, xDouble);
         Module.Param paramDouble = new Module.Param("x", Optional.of(new Type.TDouble()));
         
         List<Module.TopLevel> decls = List.of(
             new Module.TopLevel.FnDecl("add", List.of(paramDouble), Optional.of(new Type.TDouble()), bodyDouble)
         );
         
-        Expr doubleArg = new Expr.FloatLit(5.0);
-        Expr call = new Expr.App(new Expr.Var("add"), List.of(doubleArg));
+        Expr doubleArg = new FloatLit(5.0);
+        Expr call = new App(new Var("add"), List.of(doubleArg));
         
         Module module = new Module(List.of(), decls, call);
         

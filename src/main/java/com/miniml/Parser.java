@@ -3,6 +3,9 @@ package com.miniml;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import com.miniml.expr.*;
+import static com.miniml.expr.Expr.Op;
+import static com.miniml.expr.Expr.UnOp;
 
 public class Parser {
     private final List<Token> tokens;
@@ -31,18 +34,18 @@ public class Parser {
             }
         }
         
-        Expr mainExpr = null;
+        com.miniml.expr.Expr mainExpr = null;
         if (peek().type != Token.Type.EOF) {
             mainExpr = expr();
         }
         return new Module(imports, declarations, mainExpr);
     }
     
-    public Expr parseExpr() {
+    public com.miniml.expr.Expr parseExpr() {
         return expr();
     }
     
-    public Expr parse() {
+    public com.miniml.expr.Expr parse() {
         return expr();
     }
     
@@ -105,7 +108,7 @@ public class Parser {
             returnType = Optional.of(parseType());
         }
         expect(Token.Type.ASSIGN);
-        Expr body = expr();
+        com.miniml.expr.Expr body = expr();
         expect(Token.Type.SEMICOLON);
         return new Module.TopLevel.FnDecl(name, params, returnType, body);
     }
@@ -132,7 +135,7 @@ public class Parser {
         expect(Token.Type.LET);
         String name = expect(Token.Type.IDENT).value;
         expect(Token.Type.ASSIGN);
-        Expr value = expr();
+        com.miniml.expr.Expr value = expr();
         expect(Token.Type.SEMICOLON);
         return new Module.TopLevel.LetDecl(name, value);
     }
@@ -197,7 +200,7 @@ public class Parser {
         };
     }
 
-    private Expr expr() {
+    private com.miniml.expr.Expr expr() {
         if (match(Token.Type.LET)) {
             return letExpr();
         }
@@ -222,68 +225,68 @@ public class Parser {
         return orExpr();
     }
 
-    private Expr orExpr() {
-        Expr left = andExpr();
+    private com.miniml.expr.Expr orExpr() {
+        com.miniml.expr.Expr left = andExpr();
         while (match(Token.Type.OR)) {
-            Expr right = andExpr();
-            left = new Expr.BinOp(Expr.Op.OR, left, right);
+            com.miniml.expr.Expr right = andExpr();
+            left = new BinOp(Op.OR, left, right);
         }
         return left;
     }
 
-    private Expr andExpr() {
-        Expr left = comparisonExpr();
+    private com.miniml.expr.Expr andExpr() {
+        com.miniml.expr.Expr left = comparisonExpr();
         while (match(Token.Type.AND)) {
-            Expr right = comparisonExpr();
-            left = new Expr.BinOp(Expr.Op.AND, left, right);
+            com.miniml.expr.Expr right = comparisonExpr();
+            left = new BinOp(Op.AND, left, right);
         }
         return left;
     }
 
-    private Expr letExpr() {
+    private com.miniml.expr.Expr letExpr() {
         String name = expect(Token.Type.IDENT).value;
         expect(Token.Type.ASSIGN);
-        Expr value = expr();
+        com.miniml.expr.Expr value = expr();
         expect(Token.Type.IN);
-        Expr body = expr();
-        return new Expr.Let(name, value, body);
+        com.miniml.expr.Expr body = expr();
+        return new Let(name, value, body);
     }
 
-    private Expr fnExpr() {
+    private com.miniml.expr.Expr fnExpr() {
         String name = expect(Token.Type.IDENT).value;
         List<String> params = new ArrayList<>();
         while (peek().type == Token.Type.IDENT) {
             params.add(advance().value);
         }
         expect(Token.Type.ASSIGN);
-        Expr value = expr();
+        com.miniml.expr.Expr value = expr();
         expect(Token.Type.IN);
-        Expr body = expr();
-        return new Expr.LetRec(name, params, value, body);
+        com.miniml.expr.Expr body = expr();
+        return new LetRec(name, params, value, body);
     }
 
-    private Expr ifExpr() {
-        Expr cond = expr();
+    private com.miniml.expr.Expr ifExpr() {
+        com.miniml.expr.Expr cond = expr();
         expect(Token.Type.THEN);
-        Expr thenBranch = expr();
+        com.miniml.expr.Expr thenBranch = expr();
         expect(Token.Type.ELSE);
-        Expr elseBranch = expr();
-        return new Expr.If(cond, thenBranch, elseBranch);
+        com.miniml.expr.Expr elseBranch = expr();
+        return new If(cond, thenBranch, elseBranch);
     }
 
-    private Expr printExpr() {
-        Expr value = expr();
-        return new Expr.Print(value);
+    private com.miniml.expr.Expr printExpr() {
+        com.miniml.expr.Expr value = expr();
+        return new Print(value);
     }
 
-    private Expr javaCallExpr() {
+    private com.miniml.expr.Expr javaCallExpr() {
         Token classToken = expect(Token.Type.STRING);
         String className = classToken.value;
         
         Token methodToken = expect(Token.Type.STRING);
         String methodName = methodToken.value;
         
-        List<Expr> args = new ArrayList<>();
+        List<com.miniml.expr.Expr> args = new ArrayList<>();
         while (peek().type != Token.Type.EOF && 
                peek().type != Token.Type.IN &&
                peek().type != Token.Type.THEN &&
@@ -294,19 +297,19 @@ public class Parser {
             args.add(primaryExpr());
         }
         
-        return new Expr.JavaCall(className, methodName, args);
+        return new JavaCall(className, methodName, args);
     }
 
-    private Expr javaInstanceCallExpr() {
+    private com.miniml.expr.Expr javaInstanceCallExpr() {
         Token classToken = expect(Token.Type.STRING);
         String className = classToken.value;
         
         Token methodToken = expect(Token.Type.STRING);
         String methodName = methodToken.value;
         
-        Expr instance = primaryExpr();
+        com.miniml.expr.Expr instance = primaryExpr();
         
-        List<Expr> args = new ArrayList<>();
+        List<com.miniml.expr.Expr> args = new ArrayList<>();
         while (peek().type != Token.Type.EOF && 
                peek().type != Token.Type.IN &&
                peek().type != Token.Type.THEN &&
@@ -317,105 +320,105 @@ public class Parser {
             args.add(primaryExpr());
         }
         
-        return new Expr.JavaInstanceCall(className, methodName, instance, args);
+        return new JavaInstanceCall(className, methodName, instance, args);
     }
 
-    private Expr matchExpr() {
-        Expr scrutinee = expr();
+    private com.miniml.expr.Expr matchExpr() {
+        com.miniml.expr.Expr scrutinee = expr();
         expect(Token.Type.WITH);
-        List<Expr.MatchCase> cases = new ArrayList<>();
+        List<Match.MatchCase> cases = new ArrayList<>();
         
         match(Token.Type.PIPE);
         
         do {
             Pattern pattern = parsePattern();
             expect(Token.Type.ARROW);
-            Expr body = expr();
-            cases.add(new Expr.MatchCase(pattern, body));
+            com.miniml.expr.Expr body = expr();
+            cases.add(new Match.MatchCase(pattern, body));
         } while (match(Token.Type.PIPE));
         
-        return new Expr.Match(scrutinee, cases);
+        return new Match(scrutinee, cases);
     }
 
-    private Expr comparisonExpr() {
-        Expr left = consExpr();
+    private com.miniml.expr.Expr comparisonExpr() {
+        com.miniml.expr.Expr left = consExpr();
         while (true) {
             Token.Type type = peek().type;
-            Expr.Op op = switch (type) {
-                case EQ -> Expr.Op.EQ;
-                case NE -> Expr.Op.NE;
-                case LT -> Expr.Op.LT;
-                case GT -> Expr.Op.GT;
-                case LE -> Expr.Op.LE;
-                case GE -> Expr.Op.GE;
+            Op op = switch (type) {
+                case EQ -> Op.EQ;
+                case NE -> Op.NE;
+                case LT -> Op.LT;
+                case GT -> Op.GT;
+                case LE -> Op.LE;
+                case GE -> Op.GE;
                 default -> null;
             };
             if (op == null) break;
             advance();
-            Expr right = consExpr();
-            left = new Expr.BinOp(op, left, right);
+            com.miniml.expr.Expr right = consExpr();
+            left = new BinOp(op, left, right);
         }
         return left;
     }
 
-    private Expr consExpr() {
-        Expr left = addExpr();
+    private com.miniml.expr.Expr consExpr() {
+        com.miniml.expr.Expr left = addExpr();
         if (match(Token.Type.CONS)) {
-            Expr right = consExpr();
-            return new Expr.Cons(left, right);
+            com.miniml.expr.Expr right = consExpr();
+            return new Cons(left, right);
         }
         return left;
     }
 
-    private Expr addExpr() {
-        Expr left = mulExpr();
+    private com.miniml.expr.Expr addExpr() {
+        com.miniml.expr.Expr left = mulExpr();
         while (true) {
-            Expr.Op op = switch (peek().type) {
-                case PLUS -> Expr.Op.ADD;
-                case MINUS -> Expr.Op.SUB;
+            Op op = switch (peek().type) {
+                case PLUS -> Op.ADD;
+                case MINUS -> Op.SUB;
                 default -> null;
             };
             if (op == null) break;
             advance();
-            Expr right = mulExpr();
-            left = new Expr.BinOp(op, left, right);
+            com.miniml.expr.Expr right = mulExpr();
+            left = new BinOp(op, left, right);
         }
         return left;
     }
 
-    private Expr mulExpr() {
-        Expr left = unaryExpr();
+    private com.miniml.expr.Expr mulExpr() {
+        com.miniml.expr.Expr left = unaryExpr();
         while (true) {
-            Expr.Op op = switch (peek().type) {
-                case STAR -> Expr.Op.MUL;
-                case SLASH -> Expr.Op.DIV;
-                case PERCENT -> Expr.Op.MOD;
+            Op op = switch (peek().type) {
+                case STAR -> Op.MUL;
+                case SLASH -> Op.DIV;
+                case PERCENT -> Op.MOD;
                 default -> null;
             };
             if (op == null) break;
             advance();
-            Expr right = unaryExpr();
-            left = new Expr.BinOp(op, left, right);
+            com.miniml.expr.Expr right = unaryExpr();
+            left = new BinOp(op, left, right);
         }
         return left;
     }
 
-    private Expr unaryExpr() {
+    private com.miniml.expr.Expr unaryExpr() {
         if (match(Token.Type.MINUS)) {
-            Expr operand = unaryExpr();
-            return new Expr.UnaryOp(Expr.UnOp.NEG, operand);
+            com.miniml.expr.Expr operand = unaryExpr();
+            return new UnaryOp(UnOp.NEG, operand);
         }
         return appExpr();
     }
 
-    private Expr appExpr() {
-        Expr func = primaryExpr();
+    private com.miniml.expr.Expr appExpr() {
+        com.miniml.expr.Expr func = primaryExpr();
         
         while (true) {
             if (peek().type == Token.Type.SLASH && peekAhead(1).type == Token.Type.IDENT) {
                 advance();
                 String methodName = expect(Token.Type.IDENT).value;
-                List<Expr> args = new ArrayList<>();
+                List<com.miniml.expr.Expr> args = new ArrayList<>();
                 while (peek().type == Token.Type.INT || 
                        peek().type == Token.Type.FLOAT ||
                        peek().type == Token.Type.STRING ||
@@ -424,14 +427,14 @@ public class Parser {
                        peek().type == Token.Type.LBRACKET) {
                     args.add(primaryExpr());
                 }
-                func = new Expr.JavaInstanceCall("java.lang.Object", methodName, func, args);
+                func = new JavaInstanceCall("java.lang.Object", methodName, func, args);
             } else if (canBeFunction(func) && 
                 (peek().type == Token.Type.INT || 
                  peek().type == Token.Type.FLOAT ||
                  peek().type == Token.Type.STRING ||
                  peek().type == Token.Type.IDENT ||
                  peek().type == Token.Type.LPAREN)) {
-                List<Expr> args = new ArrayList<>();
+                List<com.miniml.expr.Expr> args = new ArrayList<>();
                 while (peek().type == Token.Type.INT || 
                        peek().type == Token.Type.FLOAT ||
                        peek().type == Token.Type.STRING ||
@@ -439,10 +442,10 @@ public class Parser {
                        peek().type == Token.Type.LPAREN) {
                     args.add(primaryExpr());
                 }
-                if (func instanceof Expr.Constructor(String name, java.util.Optional<Expr> existingArg) && args.size() == 1) {
-                    func = new Expr.Constructor(name, java.util.Optional.of(args.get(0)));
+                if (func instanceof Constructor(String name, java.util.Optional<com.miniml.expr.Expr> existingArg) && args.size() == 1) {
+                    func = new Constructor(name, java.util.Optional.of(args.get(0)));
                 } else {
-                    func = new Expr.App(func, args);
+                    func = new App(func, args);
                 }
             } else {
                 break;
@@ -452,28 +455,28 @@ public class Parser {
         return func;
     }
     
-    private boolean canBeFunction(Expr e) {
-        return e instanceof Expr.Var ||
-               e instanceof Expr.QualifiedVar ||
-               e instanceof Expr.Constructor ||
-               e instanceof Expr.Lambda ||
-               e instanceof Expr.App ||
-               e instanceof Expr.JavaCall ||
-               e instanceof Expr.JavaStaticField;
+    private boolean canBeFunction(com.miniml.expr.Expr e) {
+        return e instanceof Var ||
+               e instanceof QualifiedVar ||
+               e instanceof Constructor ||
+               e instanceof Lambda ||
+               e instanceof App ||
+               e instanceof JavaCall ||
+               e instanceof JavaStaticField;
     }
 
-    private Expr primaryExpr() {
+    private com.miniml.expr.Expr primaryExpr() {
         if (match(Token.Type.INT)) {
-            return new Expr.IntLit(Integer.parseInt(previous().value));
+            return new IntLit(Integer.parseInt(previous().value));
         }
         if (match(Token.Type.FLOAT)) {
-            return new Expr.FloatLit(Double.parseDouble(previous().value));
+            return new FloatLit(Double.parseDouble(previous().value));
         }
         if (match(Token.Type.TRUE)) {
-            return new Expr.BoolLit(true);
+            return new BoolLit(true);
         }
         if (match(Token.Type.FALSE)) {
-            return new Expr.BoolLit(false);
+            return new BoolLit(false);
         }
         if (match(Token.Type.STRING)) {
             return parseString(previous().value);
@@ -486,9 +489,9 @@ public class Parser {
                 String fullClassName = "java.lang." + name;
                 
                 if (Character.isUpperCase(memberName.charAt(0))) {
-                    return new Expr.JavaStaticField(fullClassName, memberName);
+                    return new JavaStaticField(fullClassName, memberName);
                 } else {
-                    List<Expr> args = new ArrayList<>();
+                    List<com.miniml.expr.Expr> args = new ArrayList<>();
                     while (peek().type == Token.Type.INT || 
                            peek().type == Token.Type.FLOAT ||
                            peek().type == Token.Type.STRING ||
@@ -497,38 +500,38 @@ public class Parser {
                            peek().type == Token.Type.LBRACKET) {
                         args.add(primaryExpr());
                     }
-                    return new Expr.JavaCall(fullClassName, memberName, args);
+                    return new JavaCall(fullClassName, memberName, args);
                 }
             }
             if (match(Token.Type.DOT)) {
                 String memberName = expect(Token.Type.IDENT).value;
-                return new Expr.QualifiedVar(name, memberName);
+                return new QualifiedVar(name, memberName);
             }
             if (Character.isUpperCase(name.charAt(0))) {
-                return new Expr.Constructor(name, java.util.Optional.empty());
+                return new Constructor(name, java.util.Optional.empty());
             }
-            return new Expr.Var(name);
+            return new Var(name);
         }
         if (match(Token.Type.LPAREN)) {
             if (peek().type == Token.Type.RPAREN) {
                 advance();
-                return new Expr.Unit();
+                return new com.miniml.expr.Unit();
             }
-            Expr e = expr();
+            com.miniml.expr.Expr e = expr();
             expect(Token.Type.RPAREN);
             return e;
         }
         if (match(Token.Type.LBRACKET)) {
             if (match(Token.Type.RBRACKET)) {
-                return new Expr.ListLit(new ArrayList<>());
+                return new ListLit(new ArrayList<>());
             }
-            List<Expr> elements = new ArrayList<>();
+            List<com.miniml.expr.Expr> elements = new ArrayList<>();
             elements.add(expr());
             while (match(Token.Type.COMMA)) {
                 elements.add(expr());
             }
             expect(Token.Type.RBRACKET);
-            return new Expr.ListLit(elements);
+            return new ListLit(elements);
         }
         throw new RuntimeException("Unexpected token: " + peek());
     }
@@ -590,7 +593,7 @@ public class Parser {
         throw new RuntimeException("Unexpected pattern token: " + peek());
     }
 
-    private Expr parseString(String str) {
+    private com.miniml.expr.Expr parseString(String str) {
         List<Object> parts = new ArrayList<>();
         int i = 0;
         StringBuilder sb = new StringBuilder();
@@ -607,7 +610,7 @@ public class Parser {
                     i++;
                 }
                 String varName = str.substring(start, i);
-                parts.add(new Expr.Var(varName));
+                parts.add(new Var(varName));
                 i++;
             } else {
                 sb.append(str.charAt(i));
@@ -620,12 +623,12 @@ public class Parser {
         }
 
         if (parts.isEmpty()) {
-            return new Expr.StringLit("");
+            return new StringLit("");
         }
         if (parts.size() == 1 && parts.get(0) instanceof String) {
-            return new Expr.StringLit((String) parts.get(0));
+            return new StringLit((String) parts.get(0));
         }
-        return new Expr.StringInterp(parts);
+        return new StringInterp(parts);
     }
 
     private Token peek() {

@@ -2,6 +2,7 @@ package com.miniml;
 
 import java.util.List;
 import java.util.Optional;
+import com.miniml.expr.Expr;
 
 public record Module(List<String> imports, List<TopLevel> declarations, Expr mainExpr) {
     public record Param(String name, Optional<Type> typeAnnotation) {}

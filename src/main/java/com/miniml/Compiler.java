@@ -7,6 +7,9 @@ import java.io.IOException;
 import java.util.*;
 
 import static org.objectweb.asm.Opcodes.*;
+import com.miniml.expr.*;
+import com.miniml.expr.Expr.Op;
+import com.miniml.expr.Expr.UnOp;
 
 public class Compiler {
     private final String className;
@@ -269,17 +272,17 @@ public class Compiler {
 
     private void compileExpr(Expr expr) {
         switch (expr) {
-            case Expr.Unit() -> mv.visitFieldInsn(GETSTATIC, "com/miniml/Unit", "INSTANCE", "Lcom/miniml/Unit;");
+            case com.miniml.expr.Unit u -> mv.visitFieldInsn(GETSTATIC, "com/miniml/Unit", "INSTANCE", "Lcom/miniml/Unit;");
             
-            case Expr.IntLit(int value) -> mv.visitLdcInsn(value);
+            case IntLit(int value) -> mv.visitLdcInsn(value);
             
-            case Expr.FloatLit(double value) -> mv.visitLdcInsn(value);
+            case FloatLit(double value) -> mv.visitLdcInsn(value);
             
-            case Expr.BoolLit(boolean value) -> mv.visitInsn(value ? ICONST_1 : ICONST_0);
+            case BoolLit(boolean value) -> mv.visitInsn(value ? ICONST_1 : ICONST_0);
             
-            case Expr.StringLit(String value) -> mv.visitLdcInsn(value);
+            case StringLit(String value) -> mv.visitLdcInsn(value);
             
-            case Expr.StringInterp(List<Object> parts) -> {
+            case StringInterp(List<Object> parts) -> {
                 mv.visitTypeInsn(NEW, "java/lang/StringBuilder");
                 mv.visitInsn(DUP);
                 mv.visitMethodInsn(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false);
@@ -288,7 +291,7 @@ public class Compiler {
                     if (part instanceof String str) {
                         mv.visitLdcInsn(str);
                         mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
-                    } else if (part instanceof Expr.Var(String varName)) {
+                    } else if (part instanceof Var(String varName)) {
                         String type = localTypes.getOrDefault(varName, "I");
                         Integer local = locals.get(varName);
                         if (local == null) {
@@ -310,15 +313,15 @@ public class Compiler {
                 mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false);
             }
             
-            case Expr.Print(Expr value) -> {
+            case Print(Expr value) -> {
                 mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
                 compileExpr(value);
                 Type valueType = typeMap.getOrDefault(value, new Type.TInt());
-                if (value instanceof Expr.Var(String varName)) {
+                if (value instanceof Var(String varName)) {
                     String jvmType = localTypes.getOrDefault(varName, "I");
                     valueType = jvmType.equals("D") ? new Type.TDouble() : new Type.TInt();
                 }
-                if (value instanceof Expr.StringLit || value instanceof Expr.StringInterp) {
+                if (value instanceof StringLit || value instanceof StringInterp) {
                     mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
                 } else if (valueType instanceof Type.TDouble) {
                     mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(D)V", false);
@@ -328,7 +331,7 @@ public class Compiler {
                 mv.visitInsn(ICONST_0);
             }
             
-            case Expr.Var(String name) -> {
+            case Var(String name) -> {
                 Integer local = locals.get(name);
                 if (local != null) {
                     String type = localTypes.getOrDefault(name, "I");
@@ -346,12 +349,12 @@ public class Compiler {
                 }
             }
             
-            case Expr.QualifiedVar(String moduleName, String memberName) -> {
+            case QualifiedVar(String moduleName, String memberName) -> {
                 String descriptor = "()I";
                 mv.visitMethodInsn(INVOKESTATIC, moduleName, memberName, descriptor, false);
             }
             
-            case Expr.UnaryOp(Expr.UnOp op, Expr operand) -> {
+            case UnaryOp(UnOp op, Expr operand) -> {
                 compileExpr(operand);
                 Type operandType = typeMap.getOrDefault(operand, new Type.TInt());
                 switch (op) {
@@ -375,8 +378,8 @@ public class Compiler {
                 }
             }
             
-            case Expr.BinOp(Expr.Op op, Expr left, Expr right) -> {
-                if (op == Expr.Op.AND) {
+            case BinOp(Op op, Expr left, Expr right) -> {
+                if (op == Op.AND) {
                     Label falseLabel = new Label();
                     Label endLabel = new Label();
                     compileExpr(left);
@@ -388,7 +391,7 @@ public class Compiler {
                     mv.visitLabel(falseLabel);
                     mv.visitInsn(ICONST_0);
                     mv.visitLabel(endLabel);
-                } else if (op == Expr.Op.OR) {
+                } else if (op == Op.OR) {
                     Label trueLabel = new Label();
                     Label endLabel = new Label();
                     compileExpr(left);
@@ -404,7 +407,7 @@ public class Compiler {
                     compileExpr(left);
                     Type leftType = typeMap.getOrDefault(left, new Type.TInt());
                     
-                    if (left instanceof Expr.Var(String varName) && localTypes.get(varName) != null && localTypes.get(varName).equals("Ljava/lang/Object;")) {
+                    if (left instanceof Var(String varName) && localTypes.get(varName) != null && localTypes.get(varName).equals("Ljava/lang/Object;")) {
                         if (leftType instanceof Type.TInt) {
                             mv.visitTypeInsn(CHECKCAST, "java/lang/Integer");
                             mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
@@ -419,7 +422,7 @@ public class Compiler {
                     compileExpr(right);
                     Type rightType = typeMap.getOrDefault(right, new Type.TInt());
                     
-                    if (right instanceof Expr.Var(String varName) && localTypes.get(varName) != null && localTypes.get(varName).equals("Ljava/lang/Object;")) {
+                    if (right instanceof Var(String varName) && localTypes.get(varName) != null && localTypes.get(varName).equals("Ljava/lang/Object;")) {
                         if (rightType instanceof Type.TInt) {
                             mv.visitTypeInsn(CHECKCAST, "java/lang/Integer");
                             mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
@@ -460,7 +463,7 @@ public class Compiler {
                 }
             }
             
-            case Expr.If(Expr cond, Expr thenBranch, Expr elseBranch) -> {
+            case If(Expr cond, Expr thenBranch, Expr elseBranch) -> {
                 Label elseLabel = new Label();
                 Label endLabel = new Label();
                 
@@ -476,7 +479,7 @@ public class Compiler {
                 mv.visitLabel(endLabel);
             }
             
-            case Expr.Let(String name, Expr value, Expr body) -> {
+            case Let(String name, Expr value, Expr body) -> {
                 compileExpr(value);
                 
                 Type valueType = typeMap.get(value);
@@ -504,19 +507,19 @@ public class Compiler {
                 freeLocal(name);
             }
             
-            case Expr.LetRec(String name, List<String> params, Expr value, Expr body) -> {
+            case LetRec(String name, List<String> params, Expr value, Expr body) -> {
                 String methodName = "lambda_" + name;
                 compileLambdaMethod(methodName, params, value);
                 compileExpr(body);
             }
             
-            case Expr.Lambda(List<String> params, Expr lambdaBody) -> {
+            case Lambda(List<String> params, Expr lambdaBody) -> {
                 String methodName = "lambda_" + (labelCounter++);
                 compileLambdaMethod(methodName, params, lambdaBody);
             }
             
-            case Expr.App(Expr func, List<Expr> args) -> {
-                if (func instanceof Expr.Var(String funcName)) {
+            case App(Expr func, List<Expr> args) -> {
+                if (func instanceof Var(String funcName)) {
                     if ("box".equals(funcName) && args.size() == 1) {
                         compileExpr(args.get(0));
                         Type argType = typeMap.getOrDefault(args.get(0), new Type.TInt());
@@ -560,7 +563,7 @@ public class Compiler {
                     
                     String descriptor = "(" + String.join("", argTypeDescs) + ")" + returnType;
                     mv.visitMethodInsn(INVOKESTATIC, className, methodName, descriptor, false);
-                } else if (func instanceof Expr.QualifiedVar(String moduleName, String memberName)) {
+                } else if (func instanceof QualifiedVar(String moduleName, String memberName)) {
                     List<String> argTypeDescs = new ArrayList<>();
                     for (Expr arg : args) {
                         compileExpr(arg);
@@ -577,7 +580,7 @@ public class Compiler {
                 }
             }
             
-            case Expr.Sequence(List<Expr> exprs) -> {
+            case Sequence(List<Expr> exprs) -> {
                 for (int i = 0; i < exprs.size(); i++) {
                     compileExpr(exprs.get(i));
                     if (i < exprs.size() - 1) {
@@ -586,7 +589,7 @@ public class Compiler {
                 }
             }
             
-            case Expr.JavaCall javaCall -> {
+            case JavaCall javaCall -> {
                 String className = javaCall.className();
                 String methodName = javaCall.methodName();
                 List<Expr> args = javaCall.args();
@@ -600,7 +603,7 @@ public class Compiler {
                 mv.visitMethodInsn(INVOKESTATIC, jvmClassName, methodName, descriptor, false);
             }
             
-            case Expr.JavaInstanceCall javaInstanceCall -> {
+            case JavaInstanceCall javaInstanceCall -> {
                 compileExpr(javaInstanceCall.instance());
                 
                 Type instanceType = typeMap.getOrDefault(javaInstanceCall.instance(), new Type.TInt());
@@ -615,14 +618,14 @@ public class Compiler {
                 mv.visitMethodInsn(INVOKEVIRTUAL, jvmClassName, javaInstanceCall.methodName(), descriptor, false);
             }
             
-            case Expr.JavaStaticField(String className, String fieldName) -> {
+            case JavaStaticField(String className, String fieldName) -> {
                 String jvmClassName = className.replace('.', '/');
                 Type fieldType = typeMap.getOrDefault(expr, new Type.TInt());
                 String descriptor = fieldType.toJvmType();
                 mv.visitFieldInsn(GETSTATIC, jvmClassName, fieldName, descriptor);
             }
             
-            case Expr.ListLit(List<Expr> elements) -> {
+            case ListLit(List<Expr> elements) -> {
                 mv.visitTypeInsn(NEW, "java/util/ArrayList");
                 mv.visitInsn(DUP);
                 mv.visitMethodInsn(INVOKESPECIAL, "java/util/ArrayList", "<init>", "()V", false);
@@ -643,7 +646,7 @@ public class Compiler {
                 }
             }
             
-            case Expr.Constructor(String name, java.util.Optional<Expr> arg) -> {
+            case Constructor(String name, java.util.Optional<Expr> arg) -> {
                 String className = "com/miniml/" + name;
                 mv.visitTypeInsn(NEW, className);
                 mv.visitInsn(DUP);
@@ -657,7 +660,7 @@ public class Compiler {
                 }
             }
             
-            case Expr.Cons(Expr head, Expr tail) -> {
+            case Cons(Expr head, Expr tail) -> {
                 mv.visitTypeInsn(NEW, "java/util/ArrayList");
                 mv.visitInsn(DUP);
                 mv.visitMethodInsn(INVOKESPECIAL, "java/util/ArrayList", "<init>", "()V", false);
@@ -681,7 +684,7 @@ public class Compiler {
                 mv.visitInsn(POP);
             }
             
-            case Expr.Match(Expr scrutinee, List<Expr.MatchCase> cases) -> {
+            case Match(Expr scrutinee, List<Match.MatchCase> cases) -> {
                 compileExpr(scrutinee);
                 int scrutineeLocal = allocLocal("$scrutinee");
                 mv.visitVarInsn(ASTORE, scrutineeLocal);
@@ -692,7 +695,7 @@ public class Compiler {
                 int savedNextLocal = nextLocal;
                 
                 for (int i = 0; i < cases.size(); i++) {
-                    Expr.MatchCase matchCase = cases.get(i);
+                    Match.MatchCase matchCase = cases.get(i);
                     Label nextCaseLabel = (i < cases.size() - 1) ? new Label() : null;
                     
                     Map<String, Integer> savedLocals = new HashMap<>(locals);
@@ -894,7 +897,7 @@ public class Compiler {
         return desc.toString();
     }
 
-    private void compileComparison(Expr.Op op, Type leftType, Type rightType) {
+    private void compileComparison(Op op, Type leftType, Type rightType) {
         Label trueLabel = new Label();
         Label endLabel = new Label();
         
@@ -903,9 +906,9 @@ public class Compiler {
         boolean isUnit = leftType instanceof Type.TUnit || rightType instanceof Type.TUnit;
         
         if (isUnit) {
-            if (op == Expr.Op.EQ || op == Expr.Op.NE) {
+            if (op == Op.EQ || op == Op.NE) {
                 mv.visitMethodInsn(INVOKEVIRTUAL, "com/miniml/Unit", "equals", "(Ljava/lang/Object;)Z", false);
-                if (op == Expr.Op.EQ) {
+                if (op == Op.EQ) {
                     mv.visitJumpInsn(IFNE, trueLabel);
                 } else {
                     mv.visitJumpInsn(IFEQ, trueLabel);
@@ -914,9 +917,9 @@ public class Compiler {
                 throw new RuntimeException("Cannot use comparison operators other than == and != on unit type");
             }
         } else if (isString) {
-            if (op == Expr.Op.EQ || op == Expr.Op.NE) {
+            if (op == Op.EQ || op == Op.NE) {
                 mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "equals", "(Ljava/lang/Object;)Z", false);
-                if (op == Expr.Op.EQ) {
+                if (op == Op.EQ) {
                     mv.visitJumpInsn(IFNE, trueLabel);
                 } else {
                     mv.visitJumpInsn(IFEQ, trueLabel);
@@ -1007,44 +1010,44 @@ public class Compiler {
     
     private String inferType(Expr expr) {
         return switch (expr) {
-            case Expr.Unit u -> "Lcom/miniml/Unit;";
-            case Expr.IntLit i -> "I";
-            case Expr.FloatLit f -> "D";
-            case Expr.BoolLit b -> "I";
-            case Expr.StringLit s -> "Ljava/lang/String;";
-            case Expr.StringInterp si -> "Ljava/lang/String;";
-            case Expr.Var(String name) -> localTypes.getOrDefault(name, "I");
-            case Expr.UnaryOp(Expr.UnOp op, Expr operand) -> inferType(operand);
-            case Expr.BinOp(Expr.Op op, Expr left, Expr right) -> inferType(left);
-            case Expr.If(Expr cond, Expr thenBranch, Expr elseBranch) -> inferType(thenBranch);
-            case Expr.Let(String n, Expr v, Expr body) -> inferType(body);
-            case Expr.LetRec(String n, List<String> p, Expr v, Expr body) -> inferType(body);
-            case Expr.Print p -> "I";
-            case Expr.Sequence(List<Expr> exprs) -> 
+            case com.miniml.expr.Unit u -> "Lcom/miniml/Unit;";
+            case IntLit i -> "I";
+            case FloatLit f -> "D";
+            case BoolLit b -> "I";
+            case StringLit s -> "Ljava/lang/String;";
+            case StringInterp si -> "Ljava/lang/String;";
+            case Var(String name) -> localTypes.getOrDefault(name, "I");
+            case UnaryOp(UnOp op, Expr operand) -> inferType(operand);
+            case BinOp(Op op, Expr left, Expr right) -> inferType(left);
+            case If(Expr cond, Expr thenBranch, Expr elseBranch) -> inferType(thenBranch);
+            case Let(String n, Expr v, Expr body) -> inferType(body);
+            case LetRec(String n, List<String> p, Expr v, Expr body) -> inferType(body);
+            case Print p -> "I";
+            case Sequence(List<Expr> exprs) -> 
                 exprs.isEmpty() ? "I" : inferType(exprs.get(exprs.size() - 1));
-            case Expr.JavaCall(String className, String methodName, List<Expr> args) -> 
+            case JavaCall(String className, String methodName, List<Expr> args) -> 
                 inferJavaCallReturnType(className, methodName);
-            case Expr.JavaInstanceCall(String className, String methodName, Expr inst, List<Expr> args) -> 
+            case JavaInstanceCall(String className, String methodName, Expr inst, List<Expr> args) -> 
                 inferJavaInstanceCallReturnType(className, methodName);
-            case Expr.JavaStaticField(String className, String fieldName) -> {
+            case JavaStaticField(String className, String fieldName) -> {
                 Type fieldType = typeMap.getOrDefault(expr, new Type.TInt());
                 yield fieldType.toJvmType();
             }
-            case Expr.App(Expr func, List<Expr> args) -> {
-                if (func instanceof Expr.Var(String name)) {
+            case App(Expr func, List<Expr> args) -> {
+                if (func instanceof Var(String name)) {
                     yield "I";
-                } else if (func instanceof Expr.QualifiedVar) {
+                } else if (func instanceof QualifiedVar) {
                     yield "I";
                 }
                 yield "I";
             }
-            case Expr.ListLit l -> "Ljava/util/List;";
-            case Expr.Cons c -> "Ljava/util/List;";
-            case Expr.Constructor(String name, java.util.Optional<Expr> arg) -> "Lcom/miniml/" + name + ";";
-            case Expr.Match(Expr scrutinee, List<Expr.MatchCase> cases) -> 
+            case ListLit l -> "Ljava/util/List;";
+            case Cons c -> "Ljava/util/List;";
+            case Constructor(String name, java.util.Optional<Expr> arg) -> "Lcom/miniml/" + name + ";";
+            case Match(Expr scrutinee, List<Match.MatchCase> cases) -> 
                 cases.isEmpty() ? "I" : inferType(cases.get(0).body());
-            case Expr.QualifiedVar qv -> "I";
-            case Expr.Lambda l -> "I";
+            case QualifiedVar qv -> "I";
+            case Lambda l -> "I";
         };
     }
     

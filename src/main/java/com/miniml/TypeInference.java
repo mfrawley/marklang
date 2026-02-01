@@ -1,6 +1,9 @@
 package com.miniml;
 
 import java.util.*;
+import com.miniml.expr.*;
+import com.miniml.expr.Expr.Op;
+import com.miniml.expr.Expr.UnOp;
 
 public class TypeInference {
     private int nextVarId = 0;
@@ -180,21 +183,21 @@ public class TypeInference {
     
     public Type infer(Map<String, Type> localEnv, Expr expr) throws TypeException {
         Type type = switch (expr) {
-            case Expr.Unit u -> new Type.TUnit();
-            case Expr.IntLit i -> new Type.TInt();
-            case Expr.FloatLit f -> new Type.TDouble();
-            case Expr.BoolLit b -> new Type.TBool();
-            case Expr.StringLit s -> new Type.TString();
-            case Expr.StringInterp si -> new Type.TString();
+            case com.miniml.expr.Unit u -> new Type.TUnit();
+            case IntLit i -> new Type.TInt();
+            case FloatLit f -> new Type.TDouble();
+            case BoolLit b -> new Type.TBool();
+            case StringLit s -> new Type.TString();
+            case StringInterp si -> new Type.TString();
             
-            case Expr.Var(String name) -> {
+            case Var(String name) -> {
                 if (!localEnv.containsKey(name)) {
                     throw new TypeException("Undefined variable: " + name);
                 }
                 yield instantiate(localEnv.get(name));
             }
             
-            case Expr.QualifiedVar(String moduleName, String memberName) -> {
+            case QualifiedVar(String moduleName, String memberName) -> {
                 String qualifiedName = moduleName + "." + memberName;
                 if (env.containsKey(qualifiedName)) {
                     yield instantiate(env.get(qualifiedName));
@@ -205,7 +208,7 @@ public class TypeInference {
                 throw new TypeException("Undefined qualified variable: " + qualifiedName);
             }
             
-            case Expr.Let(String name, Expr value, Expr body) -> {
+            case Let(String name, Expr value, Expr body) -> {
                 Type valueType = infer(localEnv, value);
                 Type scheme = generalize(localEnv, valueType);
                 Map<String, Type> newEnv = new HashMap<>(localEnv);
@@ -213,7 +216,7 @@ public class TypeInference {
                 yield infer(newEnv, body);
             }
             
-            case Expr.LetRec(String name, List<String> params, Expr value, Expr body) -> {
+            case LetRec(String name, List<String> params, Expr value, Expr body) -> {
                 Type fnType = freshVar();
                 Map<String, Type> newEnv = new HashMap<>(localEnv);
                 newEnv.put(name, fnType);
@@ -226,7 +229,7 @@ public class TypeInference {
                 yield infer(newEnv, body);
             }
             
-            case Expr.Lambda(List<String> params, Expr lambdaBody) -> {
+            case Lambda(List<String> params, Expr lambdaBody) -> {
                 Map<String, Type> newEnv = new HashMap<>(localEnv);
                 List<Type> paramTypes = new ArrayList<>();
                 for (String param : params) {
@@ -243,11 +246,11 @@ public class TypeInference {
                 yield fnType;
             }
             
-            case Expr.App(Expr func, List<Expr> args) -> {
+            case App(Expr func, List<Expr> args) -> {
                 String funcName = null;
-                if (func instanceof Expr.Var v) {
+                if (func instanceof Var v) {
                     funcName = v.name();
-                } else if (func instanceof Expr.QualifiedVar qv) {
+                } else if (func instanceof QualifiedVar qv) {
                     funcName = qv.name();
                 }
                 
@@ -306,7 +309,7 @@ public class TypeInference {
                 yield resultType;
             }
             
-            case Expr.If(Expr cond, Expr thenBranch, Expr elseBranch) -> {
+            case If(Expr cond, Expr thenBranch, Expr elseBranch) -> {
                 Type condType = infer(localEnv, cond);
                 unify(condType, new Type.TBool());
                 
@@ -317,7 +320,7 @@ public class TypeInference {
                 yield thenType;
             }
             
-            case Expr.UnaryOp(Expr.UnOp op, Expr operand) -> {
+            case UnaryOp(UnOp op, Expr operand) -> {
                 Type operandType = infer(localEnv, operand);
                 yield switch (op) {
                     case NEG -> {
@@ -332,7 +335,7 @@ public class TypeInference {
                 };
             }
 
-            case Expr.BinOp(Expr.Op op, Expr left, Expr right) -> {
+            case BinOp(Op op, Expr left, Expr right) -> {
                 Type leftType = infer(localEnv, left);
                 Type rightType = infer(localEnv, right);
                 
@@ -355,12 +358,12 @@ public class TypeInference {
                 };
             }
             
-            case Expr.Print(Expr value) -> {
+            case Print(Expr value) -> {
                 infer(localEnv, value);
                 yield new Type.TUnit();
             }
             
-            case Expr.Sequence(List<Expr> exprs) -> {
+            case Sequence(List<Expr> exprs) -> {
                 Type lastType = new Type.TUnit();
                 for (Expr e : exprs) {
                     lastType = infer(localEnv, e);
@@ -368,7 +371,7 @@ public class TypeInference {
                 yield lastType;
             }
             
-            case Expr.JavaCall(String className, String methodName, List<Expr> args) -> {
+            case JavaCall(String className, String methodName, List<Expr> args) -> {
                 List<Type> argTypes = new ArrayList<>();
                 for (Expr arg : args) {
                     argTypes.add(infer(localEnv, arg));
@@ -376,7 +379,7 @@ public class TypeInference {
                 yield inferJavaCallType(className, methodName, argTypes);
             }
             
-            case Expr.JavaInstanceCall(String className, String methodName, Expr instance, List<Expr> args) -> {
+            case JavaInstanceCall(String className, String methodName, Expr instance, List<Expr> args) -> {
                 Type instanceType = infer(localEnv, instance);
                 for (Expr arg : args) {
                     infer(localEnv, arg);
@@ -384,11 +387,11 @@ public class TypeInference {
                 yield inferJavaInstanceCallType(instanceType, methodName);
             }
             
-            case Expr.JavaStaticField(String className, String fieldName) -> {
+            case JavaStaticField(String className, String fieldName) -> {
                 yield inferJavaStaticFieldType(className, fieldName);
             }
             
-            case Expr.ListLit(List<Expr> elements) -> {
+            case ListLit(List<Expr> elements) -> {
                 if (elements.isEmpty()) {
                     yield new Type.TList(freshVar());
                 }
@@ -400,7 +403,7 @@ public class TypeInference {
                 yield new Type.TList(elementType);
             }
             
-            case Expr.Cons(Expr head, Expr tail) -> {
+            case Cons(Expr head, Expr tail) -> {
                 Type headType = infer(localEnv, head);
                 Type tailType = infer(localEnv, tail);
                 Type listType = new Type.TList(headType);
@@ -408,7 +411,7 @@ public class TypeInference {
                 yield listType;
             }
             
-            case Expr.Constructor(String name, java.util.Optional<Expr> arg) -> {
+            case Constructor(String name, java.util.Optional<Expr> arg) -> {
                 if (!localEnv.containsKey(name)) {
                     throw new TypeException("Undefined constructor: " + name);
                 }
@@ -423,7 +426,7 @@ public class TypeInference {
                 }
             }
             
-            case Expr.Match(Expr scrutinee, List<Expr.MatchCase> cases) -> {
+            case Match(Expr scrutinee, List<com.miniml.expr.Match.MatchCase> cases) -> {
                 Type scrutineeType = infer(localEnv, scrutinee);
                 
                 if (cases.isEmpty()) {
@@ -431,7 +434,7 @@ public class TypeInference {
                 }
                 
                 Type resultType = null;
-                for (Expr.MatchCase matchCase : cases) {
+                for (com.miniml.expr.Match.MatchCase matchCase : cases) {
                     Map<String, Type> patternEnv = new HashMap<>(localEnv);
                     inferPattern(matchCase.pattern(), scrutineeType, patternEnv);
                     Type caseType = infer(patternEnv, matchCase.body());

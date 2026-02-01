@@ -8,15 +8,15 @@ import java.io.StringWriter;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
+import com.miniml.expr.Expr;
 
 public class ReplSession {
     private int evalCount = 0;
     private final ReplClassLoader classLoader = new ReplClassLoader();
     private final Map<String, Type> typeEnvironment = new HashMap<>();
-    private final Map<String, Object> valueEnvironment = new HashMap<>();
+    private final Environment environment = new Environment();
     private final java.util.List<Module.TopLevel.LetDecl> letDeclarations = new java.util.ArrayList<>();
     private final java.util.List<String> imports = new java.util.ArrayList<>();
-    private final Interpreter interpreter = new Interpreter();
     
     public static class EvalResult {
         public final Object value;
@@ -107,11 +107,10 @@ public class ReplSession {
         Type valueType = inference.infer(new HashMap<>(typeEnvironment), letDecl.value());
         valueType = inference.fullyResolve(valueType);
         
-        Interpreter interp = new Interpreter(valueEnvironment);
-        Object value = interp.eval(letDecl.value());
+        Object value = letDecl.value().eval(environment);
         
         typeEnvironment.put(letDecl.name(), valueType);
-        valueEnvironment.put(letDecl.name(), value);
+        environment.define(letDecl.name(), value);
         letDeclarations.add(letDecl);
         
         return new EvalResult(value, valueType, null, true);
@@ -128,10 +127,9 @@ public class ReplSession {
         Type type = inference.infer(new HashMap<>(typeEnvironment), expr);
         type = inference.fullyResolve(type);
         
-        Interpreter interp = new Interpreter(valueEnvironment);
-        Object value = interp.eval(expr);
+        Object value = expr.eval(environment);
         
-        System.out.println(Interpreter.formatValue(value));
+        System.out.println(formatValue(value));
         
         String className = "Repl$Expr" + evalCount;
         Compiler compiler = new Compiler(className, inference.getTypeMap(), inference.getInstantiations());
@@ -164,5 +162,23 @@ public class ReplSession {
         TraceClassVisitor tcv = new TraceClassVisitor(pw);
         cr.accept(tcv, 0);
         return sw.toString();
+    }
+    
+    private static String formatValue(Object value) {
+        if (value == null) return "null";
+        if (value instanceof com.miniml.Unit) return "()";
+        if (value instanceof Boolean) return value.toString();
+        if (value instanceof java.util.List) {
+            java.util.List<?> list = (java.util.List<?>) value;
+            if (list.isEmpty()) return "[]";
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < list.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(formatValue(list.get(i)));
+            }
+            sb.append("]");
+            return sb.toString();
+        }
+        return value.toString();
     }
 }
