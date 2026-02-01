@@ -1,0 +1,7 @@
+# Expected: [2, 4, 6, 8, 10]
+fn twice_all (xs: list<int>) : list<int> = 
+  match xs with
+  | [] -> []
+  | h :: t -> (h * 2) :: twice_all t;
+
+twice_all [1, 2, 3, 4, 5]

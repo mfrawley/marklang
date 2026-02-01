@@ -67,7 +67,7 @@ public class Parser {
         }
         if (peek().type == Token.Type.COLON) {
             advance();
-            advance();
+            skipType();
         }
         if (peek().type != Token.Type.ASSIGN) {
             pos = saved;
@@ -77,6 +77,24 @@ public class Parser {
         boolean result = !containsInKeyword();
         pos = saved;
         return result;
+    }
+    
+    private void skipType() {
+        if (peek().type == Token.Type.IDENT) {
+            String name = advance().value;
+            if (name.equals("list") && peek().type == Token.Type.LT) {
+                advance();
+                skipType();
+                if (peek().type == Token.Type.GT) {
+                    advance();
+                }
+            }
+        } else if (peek().type == Token.Type.TYPE_INT ||
+                   peek().type == Token.Type.TYPE_DOUBLE ||
+                   peek().type == Token.Type.TYPE_STRING ||
+                   peek().type == Token.Type.TYPE_BOOL) {
+            advance();
+        }
     }
     
     private boolean containsInKeyword() {
@@ -188,16 +206,24 @@ public class Parser {
         Token.Type tokenType = peek().type;
         if (tokenType == Token.Type.IDENT) {
             String name = advance().value;
+            if (name.equals("list") && peek().type == Token.Type.LT) {
+                advance();
+                Type elementType = parseType();
+                expect(Token.Type.GT);
+                return new Type.TList(elementType);
+            }
             return new Type.TVar(name);
         }
         advance();
-        return switch (tokenType) {
+        Type baseType = switch (tokenType) {
             case TYPE_INT -> new Type.TInt();
             case TYPE_DOUBLE -> new Type.TDouble();
             case TYPE_STRING -> new Type.TString();
             case TYPE_BOOL -> new Type.TBool();
             default -> throw new RuntimeException("Expected type annotation");
         };
+        
+        return baseType;
     }
 
     private com.miniml.expr.Expr expr() {
@@ -433,13 +459,15 @@ public class Parser {
                  peek().type == Token.Type.FLOAT ||
                  peek().type == Token.Type.STRING ||
                  peek().type == Token.Type.IDENT ||
-                 peek().type == Token.Type.LPAREN)) {
+                 peek().type == Token.Type.LPAREN ||
+                 peek().type == Token.Type.LBRACKET)) {
                 List<com.miniml.expr.Expr> args = new ArrayList<>();
                 while (peek().type == Token.Type.INT || 
                        peek().type == Token.Type.FLOAT ||
                        peek().type == Token.Type.STRING ||
                        peek().type == Token.Type.IDENT ||
-                       peek().type == Token.Type.LPAREN) {
+                       peek().type == Token.Type.LPAREN ||
+                       peek().type == Token.Type.LBRACKET) {
                     args.add(primaryExpr());
                 }
                 if (func instanceof Constructor(String name, java.util.Optional<com.miniml.expr.Expr> existingArg) && args.size() == 1) {
