@@ -8,7 +8,10 @@ public sealed interface Expr permits
     BinOp, UnaryOp,
     If, Sequence,
     Let, LetRec,
-    Lambda, App {
+    Lambda, App,
+    Match, Print, StringInterp,
+    ListLit, Cons, Constructor,
+    JavaCall, JavaInstanceCall, JavaStaticField {
     
     Object eval(Environment env);
     
