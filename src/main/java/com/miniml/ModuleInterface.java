@@ -33,7 +33,7 @@ public class ModuleInterface {
     public static ModuleInterface readFromFile(Path path) throws IOException {
         ModuleInterface iface = new ModuleInterface();
         if (!Files.exists(path)) {
-            return iface;
+            throw new IOException("Module interface file not found: " + path);
         }
         
         List<String> lines = Files.readAllLines(path);
@@ -76,6 +76,7 @@ public class ModuleInterface {
             case Type.TApp(String name, List<Type> args) -> name;
             case Type.TName(String name) -> name;
             case Type.TBoxed() -> "boxed";
+            case Type.TJava(String className, List<Type> typeArgs) -> className;
         };
     }
     

@@ -17,6 +17,7 @@ public class ReplSession {
     private final Environment environment = new Environment();
     private final java.util.List<Module.TopLevel.LetDecl> letDeclarations = new java.util.ArrayList<>();
     private final java.util.List<String> imports = new java.util.ArrayList<>();
+    private final Map<String, String> javaImports = new HashMap<>();
     
     public static class EvalResult {
         public final Object value;
@@ -50,27 +51,36 @@ public class ReplSession {
     }
     
     private EvalResult evalImport(java.util.List<Token> tokens) throws Exception {
+        StringBuilder moduleName = new StringBuilder();
         int i = 1;
+        
         while (i < tokens.size() && tokens.get(i).type != Token.Type.EOF) {
             if (tokens.get(i).type == Token.Type.IDENT) {
-                String moduleName = tokens.get(i).value;
-                if (!imports.contains(moduleName)) {
-                    imports.add(moduleName);
-                    
-                    TypeInference inference = new TypeInference();
-                    inference.loadModuleInterface(moduleName);
-                    Map<String, Type> moduleExports = inference.getEnvironment();
-                    
-                    for (Map.Entry<String, Type> entry : moduleExports.entrySet()) {
-                        if (!entry.getKey().contains(".")) {
-                            typeEnvironment.put(entry.getKey(), entry.getValue());
-                        }
-                        typeEnvironment.put(moduleName + "." + entry.getKey(), entry.getValue());
-                    }
-                }
+                moduleName.append(tokens.get(i).value);
+            } else if (tokens.get(i).type == Token.Type.DOT) {
+                moduleName.append(".");
             }
             i++;
         }
+        
+        String fullModuleName = moduleName.toString();
+        if (!imports.contains(fullModuleName)) {
+            imports.add(fullModuleName);
+            
+            TypeInference inference = new TypeInference();
+            inference.setJavaImports(javaImports);
+            inference.loadModuleInterface(fullModuleName);
+            javaImports.putAll(inference.getJavaImports());
+            
+            Map<String, Type> moduleExports = inference.getEnvironment();
+            for (Map.Entry<String, Type> entry : moduleExports.entrySet()) {
+                if (!entry.getKey().contains(".")) {
+                    typeEnvironment.put(entry.getKey(), entry.getValue());
+                }
+                typeEnvironment.put(fullModuleName + "." + entry.getKey(), entry.getValue());
+            }
+        }
+        
         return new EvalResult(null, new Type.TUnit(), null, true);
     }
     
@@ -101,6 +111,7 @@ public class ReplSession {
         }
         
         TypeInference inference = new TypeInference();
+        inference.setJavaImports(javaImports);
         for (String importName : imports) {
             inference.loadModuleInterface(importName);
         }
@@ -121,6 +132,7 @@ public class ReplSession {
         Expr expr = parser.parseExpr();
         
         TypeInference inference = new TypeInference();
+        inference.setJavaImports(javaImports);
         for (String importName : imports) {
             inference.loadModuleInterface(importName);
         }
@@ -145,6 +157,7 @@ public class ReplSession {
         Expr expr = parser.parseExpr();
         
         TypeInference inference = new TypeInference();
+        inference.setJavaImports(javaImports);
         return inference.infer(new HashMap<>(typeEnvironment), expr);
     }
     

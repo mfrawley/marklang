@@ -22,6 +22,7 @@ public class Compiler {
     private List<String> imports = new ArrayList<>();
     private final Map<Expr, Type> typeMap;
     private final Map<String, Set<Type>> instantiations;
+    private final Map<String, String> javaImports = new HashMap<>();
 
     public Compiler(String className) {
         this(className, new HashMap<>(), new HashMap<>());
@@ -32,6 +33,24 @@ public class Compiler {
         this.cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
         this.typeMap = typeMap;
         this.instantiations = instantiations;
+    }
+    
+    private String resolveJavaClassName(String shortName) {
+        if (shortName.contains(".")) {
+            return shortName;
+        }
+        
+        String imported = javaImports.get(shortName);
+        if (imported != null) {
+            return imported;
+        }
+        
+        try {
+            Class.forName("java.lang." + shortName);
+            return "java.lang." + shortName;
+        } catch (ClassNotFoundException e) {
+            return shortName;
+        }
     }
 
     public byte[] compileModule(Module module) {
@@ -254,14 +273,18 @@ public class Compiler {
                 mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
                 mv.visitInsn(SWAP);
                 mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/Object;)V", false);
+            } else if (exprType instanceof Type.TJava) {
+                mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+                mv.visitInsn(SWAP);
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/Object;)V", false);
+            } else if (exprType instanceof Type.TString) {
+                mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+                mv.visitInsn(SWAP);
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
             } else {
                 mv.visitFieldInsn(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
                 mv.visitInsn(SWAP);
-                if (jvmType.startsWith("L")) {
-                    mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
-                } else {
-                    mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(I)V", false);
-                }
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(I)V", false);
             }
         }
 
@@ -593,14 +616,32 @@ public class Compiler {
                 String className = javaCall.className();
                 String methodName = javaCall.methodName();
                 List<Expr> args = javaCall.args();
-                String jvmClassName = className.replace('.', '/');
                 
-                for (Expr arg : args) {
-                    compileExpr(arg);
+                String actualClassName = resolveJavaClassName(className);
+                Type javaCallType = typeMap.get(javaCall);
+                if (javaCallType instanceof Type.TJava(String fullName, List<Type> typeArgs)) {
+                    actualClassName = fullName;
                 }
+                String jvmClassName = actualClassName.replace('.', '/');
                 
-                String descriptor = inferJavaMethodDescriptor(javaCall, className, methodName, args);
-                mv.visitMethodInsn(INVOKESTATIC, jvmClassName, methodName, descriptor, false);
+                if (methodName.equals("new")) {
+                    mv.visitTypeInsn(NEW, jvmClassName);
+                    mv.visitInsn(DUP);
+                    
+                    for (Expr arg : args) {
+                        compileExpr(arg);
+                    }
+                    
+                    String descriptor = inferJavaConstructorDescriptor(args);
+                    mv.visitMethodInsn(INVOKESPECIAL, jvmClassName, "<init>", descriptor, false);
+                } else {
+                    for (Expr arg : args) {
+                        compileExpr(arg);
+                    }
+                    
+                    String descriptor = inferJavaMethodDescriptor(javaCall, actualClassName, methodName, args);
+                    mv.visitMethodInsn(INVOKESTATIC, jvmClassName, methodName, descriptor, false);
+                }
             }
             
             case JavaInstanceCall javaInstanceCall -> {
@@ -856,6 +897,17 @@ public class Compiler {
         return desc.toString();
     }
     
+    private String inferJavaConstructorDescriptor(List<Expr> args) {
+        StringBuilder desc = new StringBuilder("(");
+        for (Expr arg : args) {
+            Type argType = typeMap.getOrDefault(arg, new Type.TInt());
+            desc.append(argType.toJvmType());
+        }
+        desc.append(")V");
+        
+        return desc.toString();
+    }
+    
     private String getJavaClassName(Type type) {
         return switch (type) {
             case Type.TString s -> "java.lang.String";
@@ -863,6 +915,7 @@ public class Compiler {
             case Type.TDouble d -> "java.lang.Double";
             case Type.TBool b -> "java.lang.Boolean";
             case Type.TName(String name) -> "java.lang." + name;
+            case Type.TJava(String className, List<Type> typeArgs) -> className;
             default -> "java.lang.Object";
         };
     }
@@ -870,18 +923,45 @@ public class Compiler {
     private String inferInstanceMethodDescriptor(Expr instanceCallExpr, String className, String methodName, List<Expr> args) {
         try {
             Class<?> clazz = Class.forName(className);
+            java.lang.reflect.Method bestMethod = null;
+            
             for (java.lang.reflect.Method method : clazz.getMethods()) {
                 if (method.getName().equals(methodName) && 
                     method.getParameterCount() == args.size() &&
                     java.lang.reflect.Modifier.isPublic(method.getModifiers())) {
-                    StringBuilder desc = new StringBuilder("(");
-                    for (Class<?> paramType : method.getParameterTypes()) {
-                        desc.append(org.objectweb.asm.Type.getDescriptor(paramType));
+                    
+                    Class<?>[] paramTypes = method.getParameterTypes();
+                    boolean matches = true;
+                    for (int i = 0; i < args.size(); i++) {
+                        Type argType = typeMap.getOrDefault(args.get(i), new Type.TInt());
+                        String argJvmType = argType.toJvmType();
+                        String paramJvmType = org.objectweb.asm.Type.getDescriptor(paramTypes[i]);
+                        
+                        if (!isCompatible(argJvmType, paramJvmType)) {
+                            matches = false;
+                            break;
+                        }
                     }
-                    desc.append(")");
-                    desc.append(org.objectweb.asm.Type.getDescriptor(method.getReturnType()));
-                    return desc.toString();
+                    
+                    if (matches) {
+                        if (bestMethod == null || method.getReturnType().equals(clazz)) {
+                            bestMethod = method;
+                            if (method.getReturnType().equals(clazz)) {
+                                break;
+                            }
+                        }
+                    }
                 }
+            }
+            
+            if (bestMethod != null) {
+                StringBuilder desc = new StringBuilder("(");
+                for (Class<?> paramType : bestMethod.getParameterTypes()) {
+                    desc.append(org.objectweb.asm.Type.getDescriptor(paramType));
+                }
+                desc.append(")");
+                desc.append(org.objectweb.asm.Type.getDescriptor(bestMethod.getReturnType()));
+                return desc.toString();
             }
         } catch (ClassNotFoundException e) {
         }
@@ -895,6 +975,28 @@ public class Compiler {
         Type returnType = typeMap.getOrDefault(instanceCallExpr, new Type.TInt());
         desc.append(returnType.toJvmType());
         return desc.toString();
+    }
+    
+    private boolean isCompatible(String argType, String paramType) {
+        if (argType.equals(paramType)) {
+            return true;
+        }
+        
+        if (argType.equals("Ljava/lang/String;") && paramType.equals("Ljava/lang/CharSequence;")) {
+            return true;
+        }
+        if (argType.equals("Ljava/lang/String;") && paramType.equals("Ljava/lang/Object;")) {
+            return true;
+        }
+        
+        if (argType.equals("I") && (paramType.equals("I") || paramType.equals("Ljava/lang/Integer;"))) {
+            return true;
+        }
+        if (argType.equals("D") && (paramType.equals("D") || paramType.equals("Ljava/lang/Double;"))) {
+            return true;
+        }
+        
+        return false;
     }
 
     private void compileComparison(Op op, Type leftType, Type rightType) {

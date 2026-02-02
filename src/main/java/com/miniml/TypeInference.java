@@ -11,6 +11,7 @@ public class TypeInference {
     private Map<String, Type> env = new HashMap<>();
     private Map<String, List<Type>> overloads = new HashMap<>();
     private Map<String, Set<Type>> instantiations = new HashMap<>();
+    private Map<String, String> javaImports = new HashMap<>();
     private String currentFilename = "<unknown>";
     
     public TypeInference() {
@@ -23,6 +24,14 @@ public class TypeInference {
     
     public Map<String, Set<Type>> getInstantiations() {
         return instantiations;
+    }
+    
+    public Map<String, String> getJavaImports() {
+        return new HashMap<>(javaImports);
+    }
+    
+    public void setJavaImports(Map<String, String> imports) {
+        this.javaImports.putAll(imports);
     }
     
     private void initializeBuiltins() {
@@ -99,7 +108,7 @@ public class TypeInference {
         return fullyResolve(result);
     }
     
-    public void loadModuleInterface(String moduleName) {
+    public void loadModuleInterface(String moduleName) throws TypeException {
         try {
             java.nio.file.Path mliPath = java.nio.file.Path.of("target/" + moduleName + ".mli");
             ModuleInterface moduleInterface = ModuleInterface.readFromFile(mliPath);
@@ -110,8 +119,23 @@ public class TypeInference {
                 env.put(qualifiedName, scheme);
                 env.put(entry.getKey(), scheme);
             }
+            return;
         } catch (java.io.IOException e) {
         }
+        
+        try {
+            Class<?> javaClass = Class.forName(moduleName);
+            String shortName = getShortName(moduleName);
+            javaImports.put(shortName, moduleName);
+        } catch (ClassNotFoundException e) {
+            throw new TypeException("Module not found: " + moduleName + 
+                                  ". Not a MiniML module or Java class.");
+        }
+    }
+    
+    private String getShortName(String fullName) {
+        int lastDot = fullName.lastIndexOf('.');
+        return lastDot >= 0 ? fullName.substring(lastDot + 1) : fullName;
     }
     
     private void finalizeInstantiations() {
@@ -521,37 +545,57 @@ public class TypeInference {
         }
     }
     
-    private Type inferJavaCallType(String className, String methodName, List<Type> argTypes) {
+    private Type inferJavaCallType(String className, String methodName, List<Type> argTypes) throws TypeException {
+        String shortName = getShortName(className);
+        String fullClassName = javaImports.getOrDefault(shortName, className);
+        
+        Class<?> clazz = null;
         try {
-            Class<?> clazz = Class.forName(className);
-            
-            for (java.lang.reflect.Method method : clazz.getMethods()) {
-                if (method.getName().equals(methodName) && 
-                    java.lang.reflect.Modifier.isStatic(method.getModifiers()) &&
-                    method.getParameterCount() == argTypes.size()) {
-                    
-                    Class<?>[] paramTypes = method.getParameterTypes();
-                    boolean matches = true;
-                    for (int i = 0; i < paramTypes.length; i++) {
-                        Type miniMLParamType = javaTypeToMiniML(paramTypes[i]);
-                        Type argType = fullyPrune(argTypes.get(i));
-                        if (!miniMLParamType.equals(argType)) {
-                            matches = false;
-                            break;
-                        }
-                    }
-                    
-                    if (matches) {
-                        return javaTypeToMiniML(method.getReturnType());
-                    }
+            clazz = Class.forName(fullClassName);
+        } catch (ClassNotFoundException e) {
+            if (!fullClassName.contains(".")) {
+                try {
+                    clazz = Class.forName("java.lang." + fullClassName);
+                } catch (ClassNotFoundException e2) {
                 }
             }
-        } catch (ClassNotFoundException e) {
+            if (clazz == null) {
+                throw new TypeException("Java class not found: " + fullClassName + 
+                                      ". Use 'import' to specify the full class name.");
+            }
         }
-        return new Type.TInt();
+        
+        if (methodName.equals("new")) {
+            return inferJavaConstructor(clazz, argTypes);
+        }
+        
+        for (java.lang.reflect.Method method : clazz.getMethods()) {
+            if (method.getName().equals(methodName) && 
+                java.lang.reflect.Modifier.isStatic(method.getModifiers()) &&
+                method.getParameterCount() == argTypes.size()) {
+                
+                Class<?>[] paramTypes = method.getParameterTypes();
+                boolean matches = true;
+                for (int i = 0; i < paramTypes.length; i++) {
+                    Type miniMLParamType = javaTypeToMiniML(paramTypes[i]);
+                    Type argType = fullyPrune(argTypes.get(i));
+                    if (!miniMLParamType.equals(argType)) {
+                        matches = false;
+                        break;
+                    }
+                }
+                
+                if (matches) {
+                    return javaTypeToMiniML(method.getReturnType());
+                }
+            }
+        }
+        
+        throw new TypeException("Static method '" + methodName + "' not found on Java class " + 
+                              fullClassName + " with matching parameter types");
     }
     
-    private Type inferJavaInstanceCallType(Type instanceType, String methodName) {
+    private Type inferJavaInstanceCallType(Type instanceType, String methodName) throws TypeException {
         Class<?> clazz = null;
         if (instanceType instanceof Type.TString) {
             clazz = String.class;
@@ -561,20 +605,39 @@ public class TypeInference {
             clazz = Double.class;
         } else if (instanceType instanceof Type.TBool) {
             clazz = Boolean.class;
+        } else if (instanceType instanceof Type.TJava(String className, List<Type> typeArgs)) {
+            try {
+                clazz = Class.forName(className);
+            } catch (ClassNotFoundException e) {
+                throw new TypeException("Java class not found: " + className + 
+                                      ". Ensure it's on the classpath.");
+            }
         } else if (instanceType instanceof Type.TName(String name)) {
             try {
                 clazz = Class.forName("java.lang." + name);
             } catch (ClassNotFoundException e) {
+                throw new TypeException("Java class not found: java.lang." + name);
             }
         }
         
         if (clazz != null) {
+            java.lang.reflect.Method bestMethod = null;
             for (java.lang.reflect.Method method : clazz.getMethods()) {
                 if (method.getName().equals(methodName) && 
                     java.lang.reflect.Modifier.isPublic(method.getModifiers())) {
-                    return javaTypeToMiniML(method.getReturnType());
+                    if (bestMethod == null || method.getReturnType().equals(clazz)) {
+                        bestMethod = method;
+                        if (method.getReturnType().equals(clazz)) {
+                            break;
+                        }
+                    }
                 }
             }
+            if (bestMethod != null) {
+                return javaTypeToMiniML(bestMethod.getReturnType());
+            }
+            throw new TypeException("Method '" + methodName + "' not found on Java class " + 
+                                  clazz.getName());
         }
         
         return freshVar();
@@ -608,8 +671,53 @@ public class TypeInference {
         } else if (javaType == void.class) {
             return new Type.TUnit();
         } else {
-            return freshVar();
+            return javaTypeToTJava(javaType);
         }
+    }
+    
+    private Type javaTypeToTJava(Class<?> javaType) {
+        if (javaType.getTypeParameters().length > 0) {
+            java.util.List<Type> typeArgs = new java.util.ArrayList<>();
+            for (java.lang.reflect.TypeVariable<?> tv : javaType.getTypeParameters()) {
+                typeArgs.add(freshVar());
+            }
+            return new Type.TJava(javaType.getName(), typeArgs);
+        }
+        
+        return new Type.TJava(javaType.getName(), List.of());
+    }
+    
+    private Type inferJavaConstructor(Class<?> clazz, List<Type> argTypes) throws TypeException {
+        if (argTypes.isEmpty()) {
+            try {
+                clazz.getConstructor();
+                return javaTypeToTJava(clazz);
+            } catch (NoSuchMethodException e) {
+                throw new TypeException("No no-arg constructor found for Java class " + clazz.getName());
+            }
+        }
+        
+        for (java.lang.reflect.Constructor<?> constructor : clazz.getConstructors()) {
+            if (constructor.getParameterCount() == argTypes.size()) {
+                Class<?>[] paramTypes = constructor.getParameterTypes();
+                boolean matches = true;
+                for (int i = 0; i < paramTypes.length; i++) {
+                    Type miniMLParamType = javaTypeToMiniML(paramTypes[i]);
+                    Type argType = fullyPrune(argTypes.get(i));
+                    if (!miniMLParamType.equals(argType)) {
+                        matches = false;
+                        break;
+                    }
+                }
+                
+                if (matches) {
+                    return javaTypeToTJava(clazz);
+                }
+            }
+        }
+        
+        throw new TypeException("No matching constructor found for Java class " + clazz.getName() + 
+                              " with given parameter types");
     }
     
     private Type freshVar() {

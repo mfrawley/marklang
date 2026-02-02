@@ -86,6 +86,18 @@ public sealed interface Type {
         public String toString() { return "<boxed>"; }
     }
     
+    record TJava(String className, List<Type> typeArgs) implements Type {
+        @Override
+        public String toString() {
+            if (typeArgs.isEmpty()) {
+                return className;
+            }
+            return className + "<" + 
+                   String.join(", ", typeArgs.stream().map(Type::toString).toList()) + 
+                   ">";
+        }
+    }
+    
     default String toJvmType() {
         return switch (this) {
             case TInt t -> "I";
@@ -102,6 +114,7 @@ public sealed interface Type {
             case TApp(String name, List<Type> args) -> "Lcom/miniml/" + name + ";";
             case TName(String name) -> "Lcom/miniml/" + name + ";";
             case TBoxed t -> "Ljava/lang/Object;";
+            case TJava(String className, List<Type> typeArgs) -> "L" + className.replace('.', '/') + ";";
         };
     }
 }

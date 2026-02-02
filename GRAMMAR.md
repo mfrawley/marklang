@@ -52,7 +52,9 @@ comment    ::= '#' { character } newline
 ```ebnf
 module      ::= { import } { declaration } [ main_expr ]
 
-import      ::= "import" string
+import           ::= "import" qualified_ident
+
+qualified_ident  ::= ident { '.' ident }
 
 declaration ::= fn_decl | let_decl | type_decl
 
@@ -98,7 +100,7 @@ add_expr        ::= mul_expr { add_op mul_expr }
 
 mul_expr        ::= app_expr { mul_op app_expr }
 
-app_expr        ::= primary_expr { primary_expr }
+app_expr        ::= primary_expr { primary_expr | java_instance_call }
 
 primary_expr    ::= integer
                   | float
@@ -108,9 +110,17 @@ primary_expr    ::= integer
                   | list_literal
                   | result_ok
                   | result_error
+                  | java_static_call
+                  | java_static_field
                   | ident
                   | qual_ident
                   | '(' expr ')'
+
+java_static_call  ::= ident '/' ident { primary_expr }
+
+java_static_field ::= ident '/' ident
+
+java_instance_call ::= primary_expr '/' ident { primary_expr }
 
 let_expr        ::= "let" ident '=' expr "in" expr
 
@@ -198,6 +208,25 @@ From lowest to highest precedence:
 7. Function application (left-associative)
 8. Primary expressions
 
+### Java Interop
+
+```ebnf
+(* Java static method calls *)
+java_static_call  ::= ident '/' ident { primary_expr }
+
+(* Java static field access *)
+java_static_field ::= ident '/' ident
+
+(* Java instance method calls *)
+java_instance_call ::= primary_expr '/' ident { primary_expr }
+```
+
+**Notes:**
+- Static calls require the class name to start with an uppercase letter
+- Class names are automatically prefixed with `java.lang.` (e.g., `Integer` → `java.lang.Integer`)
+- Instance method calls can be chained
+- The `/` operator is context-dependent: it's division in arithmetic expressions, but method call syntax when followed by an identifier after a primary expression
+
 ## Examples
 
 ### Simple Expression
@@ -263,6 +292,27 @@ let result = Ok 42;
 match result with
 | Ok value -> value
 | Error msg -> -1
+```
+
+### Java Interop Examples
+```ocaml
+(* Static method call *)
+let x = Integer/parseInt "42" in
+x + 1
+
+(* Instance method call *)
+let s = "hello" in
+s/toUpperCase
+
+(* Method with argument *)
+let sb = StringBuilder/new in
+sb/append "hello"
+
+(* Chained instance calls *)
+"hello"/toUpperCase/length
+
+(* Static field access *)
+Integer/MAX_VALUE
 ```
 
 ### Operator Precedence Example

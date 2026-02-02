@@ -18,7 +18,16 @@ public class Parser {
     public Module parseModule() {
         List<String> imports = new ArrayList<>();
         while (match(Token.Type.IMPORT)) {
-            imports.add(expect(Token.Type.IDENT).value);
+            StringBuilder moduleName = new StringBuilder();
+            moduleName.append(expect(Token.Type.IDENT).value);
+            
+            while (peek().type == Token.Type.DOT) {
+                advance();
+                moduleName.append(".");
+                moduleName.append(expect(Token.Type.IDENT).value);
+            }
+            
+            imports.add(moduleName.toString());
         }
         
         List<Module.TopLevel> declarations = new ArrayList<>();
@@ -514,10 +523,9 @@ public class Parser {
             if (peek().type == Token.Type.SLASH && Character.isUpperCase(name.charAt(0))) {
                 advance();
                 String memberName = expect(Token.Type.IDENT).value;
-                String fullClassName = "java.lang." + name;
                 
                 if (Character.isUpperCase(memberName.charAt(0))) {
-                    return new JavaStaticField(fullClassName, memberName);
+                    return new JavaStaticField(name, memberName);
                 } else {
                     List<com.miniml.expr.Expr> args = new ArrayList<>();
                     while (peek().type == Token.Type.INT || 
@@ -528,7 +536,7 @@ public class Parser {
                            peek().type == Token.Type.LBRACKET) {
                         args.add(primaryExpr());
                     }
-                    return new JavaCall(fullClassName, memberName, args);
+                    return new JavaCall(name, memberName, args);
                 }
             }
             if (match(Token.Type.DOT)) {
