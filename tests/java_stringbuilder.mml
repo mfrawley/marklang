@@ -1,0 +1,8 @@
+import java.lang.StringBuilder
+
+let sb = StringBuilder/new in
+let _ = sb/append "Hello" in
+let _ = sb/append " " in
+let _ = sb/append "World" in
+let result = sb/toString in
+result/equals "Hello World"

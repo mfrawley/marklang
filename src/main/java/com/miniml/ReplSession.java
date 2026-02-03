@@ -71,6 +71,7 @@ public class ReplSession {
             inference.setJavaImports(javaImports);
             inference.loadModuleInterface(fullModuleName);
             javaImports.putAll(inference.getJavaImports());
+            environment.setJavaImports(javaImports);
             
             Map<String, Type> moduleExports = inference.getEnvironment();
             for (Map.Entry<String, Type> entry : moduleExports.entrySet()) {

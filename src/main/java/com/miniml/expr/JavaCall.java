@@ -9,11 +9,30 @@ public record JavaCall(String className, String methodName, List<Expr> args) imp
     @Override
     public Object eval(Environment env) {
         try {
-            Class<?> clazz = Class.forName(className);
+            String fullClassName = env.resolveJavaClass(className);
+            Class<?> clazz = Class.forName(fullClassName);
             
             List<Object> argValues = new ArrayList<>();
             for (Expr arg : args) {
                 argValues.add(arg.eval(env));
+            }
+            
+            if (methodName.equals("new")) {
+                Object[] argArray = argValues.toArray();
+                if (argArray.length == 0) {
+                    return clazz.getDeclaredConstructor().newInstance();
+                }
+                
+                for (java.lang.reflect.Constructor<?> constructor : clazz.getConstructors()) {
+                    if (constructor.getParameterCount() == argArray.length) {
+                        try {
+                            return constructor.newInstance(argArray);
+                        } catch (IllegalArgumentException e) {
+                            continue;
+                        }
+                    }
+                }
+                throw new RuntimeException("No matching constructor found for: " + className);
             }
             
             for (Method method : clazz.getMethods()) {

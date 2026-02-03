@@ -46,6 +46,16 @@ Each proposal is a markdown file named `NNN-short-title.md` where:
 11. **Alternatives**: Other approaches considered (optional)
 12. **Future Work**: Follow-on improvements (optional)
 
+### Writing Focus
+
+When writing proposals, emphasize:
+- **User-facing syntax**: What will users actually write?
+- **Semantics**: How does the feature behave? What are the rules?
+- **Benefits**: Why is this valuable? What problems does it solve?
+- **Drawbacks**: What are the costs, limitations, and potential issues?
+
+Keep implementation details minimal unless they affect user-observable behavior or inform design tradeoffs.
+
 ## Proposal Statuses
 
 - **Proposed**: Under discussion, not yet approved
@@ -69,3 +79,4 @@ Each proposal is a markdown file named `NNN-short-title.md` where:
 | Number | Title | Status |
 |--------|-------|--------|
 | 001 | [Java Foreign Types](001-java-foreign-types.md) | Implemented |
+| 002 | [Polymorphic Type Syntax](002-polymorphic-type-syntax.md) | Proposed |

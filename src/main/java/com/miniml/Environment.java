@@ -7,13 +7,16 @@ public class Environment {
     private final Object[] slots;
     private final Environment parent;
     private int nextSlot;
+    private Map<String, String> javaImports;
     
     public Environment() {
         this(null, 16);
+        this.javaImports = new HashMap<>();
     }
     
     public Environment(Environment parent) {
         this(parent, 16);
+        this.javaImports = parent != null ? parent.javaImports : new HashMap<>();
     }
     
     public Environment(Environment parent, int initialCapacity) {
@@ -21,6 +24,7 @@ public class Environment {
         this.nameToSlot = new HashMap<>();
         this.slots = new Object[initialCapacity];
         this.nextSlot = 0;
+        this.javaImports = parent != null ? parent.javaImports : new HashMap<>();
     }
     
     public static Environment fromMap(Map<String, Object> map) {
@@ -102,5 +106,17 @@ public class Environment {
             map.put(entry.getKey(), slots[entry.getValue()]);
         }
         return map;
+    }
+    
+    public void setJavaImports(Map<String, String> imports) {
+        this.javaImports = imports;
+    }
+    
+    public Map<String, String> getJavaImports() {
+        return javaImports;
+    }
+    
+    public String resolveJavaClass(String shortName) {
+        return javaImports.getOrDefault(shortName, shortName);
     }
 }

@@ -1,0 +1,8 @@
+import java.util.ArrayList
+
+let list = ArrayList/new in
+let _ = list/add "a" in
+let _ = list/add "b" in
+let _ = list/add "c" in
+let size = list/size in
+size == 3

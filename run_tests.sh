@@ -71,7 +71,7 @@ for test_file in tests/*.mml; do
         continue
     fi
     
-    actual=$(java -cp target:target/classes:tests/modules "$class_name" 2>&1 | head -n 1)
+    actual=$(java -cp target/minimltests:target/classes:tests/modules "$class_name" 2>&1 | head -n 1)
     
     if [ "$actual" = "$expected" ]; then
         echo "✅ $test_name"

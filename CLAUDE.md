@@ -193,3 +193,13 @@ When making changes:
 3. Ensure all tests pass: `./run_tests.sh` and `mvn test`
 4. Compile stdlib modules if needed: `java -cp ... com.miniml.Main stdlib/Math.mml`
 5. Update this document if architecture changes
+
+## AI Assistant Guidelines
+
+When working on this codebase:
+- Do what has been asked; nothing more, nothing less
+- NEVER create files unless they're absolutely necessary for achieving your goal
+- ALWAYS prefer editing an existing file to creating a new one
+- NEVER proactively create documentation files (*.md) or README files unless explicitly requested
+- NEVER suggest quick fixes or workarounds when a feature is missing or needs significant work
+- If a feature requires substantial design work, create a proposal in the `proposals/` directory following the format in `proposals/README.md`

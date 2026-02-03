@@ -1,0 +1,6 @@
+import java.util.HashMap
+
+let map = HashMap/new in
+let _ = map/put "foo" "bar" in
+let result = map/get "foo" in
+result/equals "bar"

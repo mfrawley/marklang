@@ -66,12 +66,17 @@ public class Main {
             Compiler compiler = new Compiler(finalClassName, typeInf.getTypeMap(), typeInf.getInstantiations());
             byte[] bytecode = compiler.compileModule(module);
             
-            Path targetDir = Path.of("target");
+            Path targetDir;
+            if (sourceFile.startsWith("tests/")) {
+                targetDir = Path.of("target/minimltests");
+            } else {
+                targetDir = Path.of("target");
+            }
             if (!Files.exists(targetDir)) {
                 Files.createDirectories(targetDir);
             }
             
-            String outputFile = "target/" + finalClassName + ".class";
+            String outputFile = targetDir + "/" + finalClassName + ".class";
             Files.write(Path.of(outputFile), bytecode);
             
             ModuleInterface moduleInterface = new ModuleInterface();
@@ -90,7 +95,7 @@ public class Main {
                     }
                 }
             }
-            String mliFile = "target/" + finalClassName + ".mli";
+            String mliFile = targetDir + "/" + finalClassName + ".mli";
             moduleInterface.writeToFile(Path.of(mliFile));
             
             System.out.println("Compiled " + sourceFile + " -> " + outputFile);
