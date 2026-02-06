@@ -1,0 +1,3 @@
+# Expected: true
+fn is_even x = x % 2 == 0 in
+is_even 4

@@ -1,0 +1,5 @@
+# Expected: true
+fn identity (x: 'a): 'a = x in
+let n = identity 42 in
+let s = identity "test" in
+n == 42 && s == "test"

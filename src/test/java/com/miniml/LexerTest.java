@@ -137,4 +137,57 @@ class LexerTest {
         assertEquals(Token.Type.INT, tokens.get(5).type);
         assertEquals(Token.Type.RBRACKET, tokens.get(6).type);
     }
+    
+    @Test
+    void testTypeVariable() {
+        Lexer lexer = new Lexer("'a");
+        List<Token> tokens = lexer.tokenize();
+        assertEquals(2, tokens.size());
+        assertEquals(Token.Type.TYPE_VAR, tokens.get(0).type);
+        assertEquals("a", tokens.get(0).value);
+        assertEquals(Token.Type.EOF, tokens.get(1).type);
+    }
+    
+    @Test
+    void testMultipleTypeVariables() {
+        Lexer lexer = new Lexer("'a 'b 'elem");
+        List<Token> tokens = lexer.tokenize();
+        assertEquals(4, tokens.size());
+        assertEquals(Token.Type.TYPE_VAR, tokens.get(0).type);
+        assertEquals("a", tokens.get(0).value);
+        assertEquals(Token.Type.TYPE_VAR, tokens.get(1).type);
+        assertEquals("b", tokens.get(1).value);
+        assertEquals(Token.Type.TYPE_VAR, tokens.get(2).type);
+        assertEquals("elem", tokens.get(2).value);
+    }
+    
+    @Test
+    void testTypeVariableInFunctionSignature() {
+        Lexer lexer = new Lexer("fn identity (x: 'a): 'a = x");
+        List<Token> tokens = lexer.tokenize();
+        assertEquals(12, tokens.size());
+        assertEquals(Token.Type.FN, tokens.get(0).type);
+        assertEquals(Token.Type.IDENT, tokens.get(1).type);
+        assertEquals("identity", tokens.get(1).value);
+        assertEquals(Token.Type.LPAREN, tokens.get(2).type);
+        assertEquals(Token.Type.IDENT, tokens.get(3).type);
+        assertEquals("x", tokens.get(3).value);
+        assertEquals(Token.Type.COLON, tokens.get(4).type);
+        assertEquals(Token.Type.TYPE_VAR, tokens.get(5).type);
+        assertEquals("a", tokens.get(5).value);
+        assertEquals(Token.Type.RPAREN, tokens.get(6).type);
+        assertEquals(Token.Type.COLON, tokens.get(7).type);
+        assertEquals(Token.Type.TYPE_VAR, tokens.get(8).type);
+        assertEquals("a", tokens.get(8).value);
+        assertEquals(Token.Type.ASSIGN, tokens.get(9).type);
+        assertEquals(Token.Type.IDENT, tokens.get(10).type);
+        assertEquals("x", tokens.get(10).value);
+        assertEquals(Token.Type.EOF, tokens.get(11).type);
+    }
+    
+    @Test
+    void testTypeVariableErrorsWithoutLowercaseLetter() {
+        Lexer lexer = new Lexer("'A");
+        assertThrows(LexerException.class, () -> lexer.tokenize());
+    }
 }

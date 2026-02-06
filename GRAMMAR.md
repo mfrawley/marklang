@@ -30,7 +30,7 @@ ident      ::= ( letter | '_' ) { letter | digit | '_' }
 qual_ident ::= ident '.' ident
 
 (* Keywords *)
-keyword    ::= "let" | "fn" | "in" | "if" | "then" | "else" 
+keyword    ::= "let" | "fn" | "fun" | "in" | "if" | "then" | "else" 
              | "match" | "with" | "type" | "of"
              | "Ok" | "Error" | "print"
              | "true" | "false" | "import"
@@ -68,10 +68,17 @@ type_params ::= '<' ident { ',' ident } '>'
 
 constructor ::= ident [ "of" type_expr ]
 
-type_expr   ::= ident                          (* Type variable or named type *)
+type_expr   ::= type_var
               | "int" | "double" | "string" | "bool" | "unit"
+              | ident '<' type_expr { ',' type_expr } '>'  (* Parameterized type *)
+              | type_expr "->" type_expr                    (* Function type *)
+              | '(' type_expr ')'                           (* Parenthesized type *)
 
-param       ::= ident
+type_var    ::= "'" ident_lower                             (* Type variable like 'a, 'b *)
+
+ident_lower ::= ('a'..'z') { letter | digit | '_' }
+
+param       ::= ident | '(' ident ':' type_expr ')'
 
 main_expr   ::= expr
 ```
@@ -83,6 +90,7 @@ main_expr   ::= expr
 
 expr            ::= let_expr
                   | fn_expr
+                  | lambda_expr
                   | if_expr
                   | match_expr
                   | print_expr
@@ -124,7 +132,9 @@ java_instance_call ::= primary_expr '/' ident { primary_expr }
 
 let_expr        ::= "let" ident '=' expr "in" expr
 
-fn_expr         ::= "fn" ident { param } '=' expr "in" expr
+fn_expr         ::= "fn" ident { param } [ ':' type_expr ] '=' expr "in" expr
+
+lambda_expr     ::= "fun" { param } "->" expr
 
 if_expr         ::= "if" expr "then" expr "else" expr
 

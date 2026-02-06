@@ -1,0 +1,6 @@
+# Expected: [2, 4]
+import List
+
+fn is_even x = x % 2 == 0 in
+
+List.filter is_even [1, 2, 3, 4]

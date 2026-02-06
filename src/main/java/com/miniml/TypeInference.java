@@ -12,6 +12,7 @@ public class TypeInference {
     private Map<String, List<Type>> overloads = new HashMap<>();
     private Map<String, Set<Type>> instantiations = new HashMap<>();
     private Map<String, String> javaImports = new HashMap<>();
+    private Map<String, Type> letRecTypes = new HashMap<>();
     private String currentFilename = "<unknown>";
     
     public TypeInference() {
@@ -34,6 +35,10 @@ public class TypeInference {
         this.javaImports.putAll(imports);
     }
     
+    public Map<String, Type> getLetRecTypes() {
+        return letRecTypes;
+    }
+    
     private void initializeBuiltins() {
         Type intBinOp = new Type.TFun(new Type.TInt(), 
             new Type.TFun(new Type.TInt(), new Type.TInt()));
@@ -49,6 +54,8 @@ public class TypeInference {
     }
     
     public Type inferModule(Module module) throws TypeException {
+        loadStdlibModules();
+        
         for (String importName : module.imports()) {
             loadModuleInterface(importName);
         }
@@ -64,6 +71,8 @@ public class TypeInference {
                 
                 isolatedTI.pruneTypeMap();
                 this.typeMap.putAll(isolatedTI.typeMap);
+                
+                letRecTypes.put(name, fnType);
                 
                 if (!overloads.containsKey(name)) {
                     overloads.put(name, new ArrayList<>());
@@ -108,19 +117,32 @@ public class TypeInference {
         return fullyResolve(result);
     }
     
-    public void loadModuleInterface(String moduleName) throws TypeException {
-        try {
-            java.nio.file.Path mliPath = java.nio.file.Path.of("target/" + moduleName + ".mli");
-            ModuleInterface moduleInterface = ModuleInterface.readFromFile(mliPath);
-            
-            for (Map.Entry<String, Type> entry : moduleInterface.getExports().entrySet()) {
-                String qualifiedName = moduleName + "." + entry.getKey();
-                Type scheme = generalize(new HashMap<>(), entry.getValue());
-                env.put(qualifiedName, scheme);
-                env.put(entry.getKey(), scheme);
+    private void loadStdlibModules() {
+        String[] stdlibModules = {"Math", "String", "List"};
+        for (String moduleName : stdlibModules) {
+            try {
+                loadModuleInterface(moduleName);
+            } catch (TypeException e) {
             }
-            return;
-        } catch (java.io.IOException e) {
+        }
+    }
+    
+    public void loadModuleInterface(String moduleName) throws TypeException {
+        String[] searchPaths = {"target/", "target/minimltests/"};
+        for (String searchPath : searchPaths) {
+            try {
+                java.nio.file.Path mliPath = java.nio.file.Path.of(searchPath + moduleName + ".mli");
+                ModuleInterface moduleInterface = ModuleInterface.readFromFile(mliPath);
+                
+                for (Map.Entry<String, Type> entry : moduleInterface.getExports().entrySet()) {
+                    String qualifiedName = moduleName + "." + entry.getKey();
+                    Type scheme = generalize(new HashMap<>(), entry.getValue());
+                    env.put(qualifiedName, scheme);
+                    env.put(entry.getKey(), scheme);
+                }
+                return;
+            } catch (java.io.IOException e) {
+            }
         }
         
         try {
@@ -245,19 +267,21 @@ public class TypeInference {
                 yield infer(newEnv, body);
             }
             
-            case LetRec(String name, List<String> params, Expr value, Expr body) -> {
+            case LetRec letRec -> {
                 Type fnType = freshVar();
                 Map<String, Type> newEnv = new HashMap<>(localEnv);
-                newEnv.put(name, fnType);
+                newEnv.put(letRec.name(), fnType);
                 
-                Type inferredFnType = inferFn(params, value, newEnv);
+                Type inferredFnType = inferFn(letRec.params(), letRec.value(), newEnv);
                 unify(fnType, inferredFnType);
                 
                 Type prunedFnType = fullyPrune(fnType);
                 
+                letRecTypes.put(letRec.name(), prunedFnType);
+                
                 Type scheme = generalize(localEnv, prunedFnType);
-                newEnv.put(name, scheme);
-                yield infer(newEnv, body);
+                newEnv.put(letRec.name(), scheme);
+                yield infer(newEnv, letRec.body());
             }
             
             case Lambda(List<String> params, Expr lambdaBody) -> {

@@ -64,6 +64,7 @@ public class Main {
             String finalClassName = className.toString();
             
             Compiler compiler = new Compiler(finalClassName, typeInf.getTypeMap(), typeInf.getInstantiations());
+            compiler.setLetRecTypes(typeInf.getLetRecTypes());
             byte[] bytecode = compiler.compileModule(module);
             
             Path targetDir;
@@ -85,12 +86,6 @@ public class Main {
                 if (decl instanceof Module.TopLevel.FnDecl(String name, List<Module.Param> params, var returnType, Expr body)) {
                     Type fnType = env.get(name);
                     if (fnType != null) {
-                        if (containsUnresolvedTypeVars(fnType)) {
-                            System.err.println("Error: Function '" + name + "' has unresolved type variables and cannot be exported.");
-                            System.err.println("  Inferred type: " + fnType);
-                            System.err.println("  Please add explicit type annotations to all parameters and return type.");
-                            System.exit(1);
-                        }
                         moduleInterface.addExport(name, fnType);
                     }
                 }

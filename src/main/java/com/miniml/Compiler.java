@@ -23,6 +23,8 @@ public class Compiler {
     private final Map<Expr, Type> typeMap;
     private final Map<String, Set<Type>> instantiations;
     private final Map<String, String> javaImports = new HashMap<>();
+    private Map<String, Type> letRecTypes = new HashMap<>();
+    private Set<String> topLevelFunctions = new HashSet<>();
 
     public Compiler(String className) {
         this(className, new HashMap<>(), new HashMap<>());
@@ -33,6 +35,10 @@ public class Compiler {
         this.cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
         this.typeMap = typeMap;
         this.instantiations = instantiations;
+    }
+    
+    public void setLetRecTypes(Map<String, Type> letRecTypes) {
+        this.letRecTypes = letRecTypes;
     }
     
     private String resolveJavaClassName(String shortName) {
@@ -62,6 +68,7 @@ public class Compiler {
         
         for (Module.TopLevel decl : module.declarations()) {
             if (decl instanceof Module.TopLevel.FnDecl(String name, List<Module.Param> params, var returnType, Expr body)) {
+                topLevelFunctions.add(name);
                 Set<Type> types = instantiations.getOrDefault(name, Set.of());
                 if (types.isEmpty()) {
                     compileTopLevelFunction(name, params, body, null);
@@ -365,6 +372,9 @@ public class Compiler {
                     } else {
                         mv.visitVarInsn(ILOAD, local);
                     }
+                } else if (letRecTypes.containsKey(name)) {
+                    Type funcType = letRecTypes.get(name);
+                    wrapFunctionAsObject(name, funcType);
                 } else {
                     Type varType = typeMap.getOrDefault(expr, new Type.TInt());
                     String jvmType = varType.toJvmType();
@@ -530,15 +540,18 @@ public class Compiler {
                 freeLocal(name);
             }
             
-            case LetRec(String name, List<String> params, Expr value, Expr body) -> {
-                String methodName = "lambda_" + name;
-                compileLambdaMethod(methodName, params, value);
-                compileExpr(body);
+            case LetRec letRec -> {
+                String methodName = "lambda_" + letRec.name();
+                compileLambdaMethodFromLetRec(methodName, letRec);
+                compileExpr(letRec.body());
             }
             
             case Lambda(List<String> params, Expr lambdaBody) -> {
                 String methodName = "lambda_" + (labelCounter++);
                 compileLambdaMethod(methodName, params, lambdaBody);
+                
+                Type lambdaType = typeMap.getOrDefault(expr, new Type.TFun(new Type.TInt(), new Type.TInt()));
+                wrapLambdaAsObject(methodName, lambdaType);
             }
             
             case App(Expr func, List<Expr> args) -> {
@@ -555,17 +568,52 @@ public class Compiler {
                         return;
                     }
                     
-                    List<String> argTypeDescs = new ArrayList<>();
-                    List<Type> argTypes = new ArrayList<>();
-                    for (Expr arg : args) {
-                        compileExpr(arg);
-                        Type argType = typeMap.getOrDefault(arg, new Type.TInt());
-                        argTypes.add(argType);
-                        argTypeDescs.add(argType.toJvmType());
+                    if (locals.containsKey(funcName) && localTypes.get(funcName).equals("Ljava/lang/Object;")) {
+                        if (args.size() == 1) {
+                            mv.visitVarInsn(ALOAD, locals.get(funcName));
+                            compileExpr(args.get(0));
+                            Type argType = typeMap.getOrDefault(args.get(0), new Type.TInt());
+                            boxIfPrimitive(argType);
+                            mv.visitMethodInsn(INVOKEINTERFACE, "java/util/function/Function", "apply", "(Ljava/lang/Object;)Ljava/lang/Object;", true);
+                            
+                            Type resultType = typeMap.getOrDefault(expr, new Type.TInt());
+                            insertCastIfNeeded(resultType);
+                            return;
+                        } else {
+                            throw new RuntimeException("Multi-arg function application via Function interface not yet supported");
+                        }
                     }
                     
-                    String methodName = funcName;
+                    Type funcType = letRecTypes.get(funcName);
+                    boolean isPolymorphic = funcType != null && hasTypeVars(funcType);
+                    
+                    List<String> argTypeDescs = new ArrayList<>();
+                    List<Type> argTypes = new ArrayList<>();
+                    
+                    Type currentFuncType = funcType;
+                    for (Expr arg : args) {
+                        Type argType = typeMap.getOrDefault(arg, new Type.TInt());
+                        argTypes.add(argType);
+                        
+                        compileExpr(arg);
+                        
+                        if (isPolymorphic && currentFuncType instanceof Type.TFun(Type paramType, Type resultType)) {
+                            if (isTypeVar(paramType)) {
+                                boxIfPrimitive(argType);
+                                argTypeDescs.add("Ljava/lang/Object;");
+                            } else {
+                                argTypeDescs.add(argType.toJvmType());
+                            }
+                            currentFuncType = resultType;
+                        } else {
+                            argTypeDescs.add(argType.toJvmType());
+                        }
+                    }
+                    
+                    String methodName;
                     String returnType;
+                    
+                    Type appType = typeMap.getOrDefault(expr, new Type.TInt());
                     
                     if (instantiations.containsKey(funcName) && !instantiations.get(funcName).isEmpty()) {
                         Type firstArgType = argTypes.isEmpty() ? new Type.TInt() : argTypes.get(0);
@@ -578,14 +626,35 @@ public class Compiler {
                         
                         String suffix = getTypeSuffix(reconstructedType);
                         methodName = funcName + "$" + suffix;
+                    } else if (funcType != null) {
+                        if (topLevelFunctions.contains(funcName)) {
+                            methodName = funcName;
+                        } else {
+                            methodName = "lambda_" + funcName;
+                        }
+                        if (isPolymorphic && currentFuncType != null && isTypeVar(currentFuncType)) {
+                            returnType = "Ljava/lang/Object;";
+                        } else {
+                            returnType = appType.toJvmType();
+                        }
                     } else {
                         methodName = "lambda_" + funcName;
-                        Type appType = typeMap.getOrDefault(expr, new Type.TInt());
-                        returnType = appType.toJvmType();
+                        if (isPolymorphic && currentFuncType != null && isTypeVar(currentFuncType)) {
+                            returnType = "Ljava/lang/Object;";
+                        } else {
+                            returnType = appType.toJvmType();
+                        }
                     }
                     
                     String descriptor = "(" + String.join("", argTypeDescs) + ")" + returnType;
                     mv.visitMethodInsn(INVOKESTATIC, className, methodName, descriptor, false);
+                    
+                    if (isPolymorphic) {
+                        Type resultType = typeMap.getOrDefault(expr, new Type.TInt());
+                        if (returnType.equals("Ljava/lang/Object;")) {
+                            insertCastIfNeeded(resultType);
+                        }
+                    }
                 } else if (func instanceof QualifiedVar(String moduleName, String memberName)) {
                     List<String> argTypeDescs = new ArrayList<>();
                     for (Expr arg : args) {
@@ -1069,26 +1138,95 @@ public class Compiler {
         mv.visitLabel(endLabel);
     }
 
+    private void compileLambdaMethodFromLetRec(String methodName, LetRec letRec) {
+        Type fnType = letRecTypes.get(letRec.name());
+        if (fnType == null) {
+            compileLambdaMethod(methodName, letRec.params(), letRec.value());
+            return;
+        }
+        
+        MethodVisitor prevMv = mv;
+        Map<String, Integer> prevLocals = new HashMap<>(locals);
+        Map<String, String> prevLocalTypes = new HashMap<>(localTypes);
+        int prevNextLocal = nextLocal;
+
+        StringBuilder descriptorBuilder = new StringBuilder("(");
+        locals.clear();
+        localTypes.clear();
+        nextLocal = 0;
+        
+        Type currentType = fnType;
+        for (String param : letRec.params()) {
+            String jvmType = "I";
+            if (currentType instanceof Type.TFun(Type paramT, Type resultT)) {
+                jvmType = paramT.toJvmType();
+                currentType = resultT;
+            }
+            descriptorBuilder.append(jvmType);
+            locals.put(param, nextLocal);
+            nextLocal += jvmType.equals("D") ? 2 : 1;
+            localTypes.put(param, jvmType);
+        }
+        
+        String returnType = currentType != null ? currentType.toJvmType() : "I";
+        descriptorBuilder.append(")").append(returnType);
+        String descriptor = descriptorBuilder.toString();
+        
+        mv = cw.visitMethod(ACC_PRIVATE | ACC_STATIC, methodName, descriptor, null, null);
+        mv.visitCode();
+
+        compileExpr(letRec.value());
+        switch (returnType) {
+            case "I", "Z" -> mv.visitInsn(IRETURN);
+            case "D" -> mv.visitInsn(DRETURN);
+            case "V" -> mv.visitInsn(RETURN);
+            default -> mv.visitInsn(ARETURN);
+        }
+        mv.visitMaxs(0, 0);
+        mv.visitEnd();
+
+        mv = prevMv;
+        locals.clear();
+        locals.putAll(prevLocals);
+        localTypes.clear();
+        localTypes.putAll(prevLocalTypes);
+        nextLocal = prevNextLocal;
+    }
+    
     private void compileLambdaMethod(String methodName, List<String> params, Expr body) {
         MethodVisitor prevMv = mv;
         Map<String, Integer> prevLocals = new HashMap<>(locals);
         Map<String, String> prevLocalTypes = new HashMap<>(localTypes);
         int prevNextLocal = nextLocal;
 
-        String descriptor = "(" + "I".repeat(params.size()) + ")I";
-        mv = cw.visitMethod(ACC_PRIVATE | ACC_STATIC, methodName, descriptor, null, null);
-        mv.visitCode();
-
+        StringBuilder descriptorBuilder = new StringBuilder("(");
         locals.clear();
         localTypes.clear();
         nextLocal = 0;
         for (String param : params) {
-            locals.put(param, nextLocal++);
-            localTypes.put(param, "I");
+            Var paramVar = new Var(param);
+            Type paramType = typeMap.getOrDefault(paramVar, new Type.TInt());
+            String jvmType = paramType.toJvmType();
+            descriptorBuilder.append(jvmType);
+            locals.put(param, nextLocal);
+            nextLocal += jvmType.equals("D") ? 2 : 1;
+            localTypes.put(param, jvmType);
         }
+        Type bodyType = typeMap.getOrDefault(body, new Type.TInt());
+        String returnType = bodyType.toJvmType();
+        descriptorBuilder.append(")").append(returnType);
+        String descriptor = descriptorBuilder.toString();
+        
+        mv = cw.visitMethod(ACC_PRIVATE | ACC_STATIC, methodName, descriptor, null, null);
+        mv.visitCode();
 
         compileExpr(body);
-        mv.visitInsn(IRETURN);
+        switch (returnType) {
+            case "I", "Z" -> mv.visitInsn(IRETURN);
+            case "D" -> mv.visitInsn(DRETURN);
+            case "V" -> mv.visitInsn(RETURN);
+            default -> mv.visitInsn(ARETURN);
+        }
         mv.visitMaxs(0, 0);
         mv.visitEnd();
 
@@ -1271,6 +1409,152 @@ public class Compiler {
             mv.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false);
         } else if (type instanceof Type.TBool) {
             mv.visitMethodInsn(INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false);
+        }
+    }
+    
+    private void boxIfPrimitive(Type type) {
+        switch (type) {
+            case Type.TInt i -> mv.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
+            case Type.TDouble d -> mv.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false);
+            case Type.TBool b -> mv.visitMethodInsn(INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false);
+            default -> {}
+        }
+    }
+    
+    private void insertCastIfNeeded(Type targetType) {
+        switch (targetType) {
+            case Type.TInt i -> {
+                mv.visitTypeInsn(CHECKCAST, "java/lang/Integer");
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
+            }
+            case Type.TDouble d -> {
+                mv.visitTypeInsn(CHECKCAST, "java/lang/Double");
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false);
+            }
+            case Type.TBool b -> {
+                mv.visitTypeInsn(CHECKCAST, "java/lang/Boolean");
+                mv.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Boolean", "booleanValue", "()Z", false);
+            }
+            case Type.TString s -> mv.visitTypeInsn(CHECKCAST, "java/lang/String");
+            case Type.TList l -> mv.visitTypeInsn(CHECKCAST, "java/util/List");
+            case Type.TResult r -> mv.visitTypeInsn(CHECKCAST, "com/miniml/Result");
+            case Type.TUnit u -> mv.visitTypeInsn(CHECKCAST, "com/miniml/Unit");
+            default -> {}
+        }
+    }
+    
+    private boolean isTypeVar(Type type) {
+        return type instanceof Type.TVar || type instanceof Type.TNumeric;
+    }
+    
+    private boolean hasTypeVars(Type type) {
+        return switch (type) {
+            case Type.TVar v -> true;
+            case Type.TNumeric n -> true;
+            case Type.TFun(Type param, Type result) -> hasTypeVars(param) || hasTypeVars(result);
+            case Type.TList(Type elem) -> hasTypeVars(elem);
+            case Type.TResult(Type ok, Type err) -> hasTypeVars(ok) || hasTypeVars(err);
+            default -> false;
+        };
+    }
+    
+    private void wrapFunctionAsObject(String funcName, Type funcType) {
+        String methodName = "lambda_" + funcName;
+        Type currentType = funcType;
+        List<Type> paramTypeObjs = new ArrayList<>();
+        
+        while (currentType instanceof Type.TFun(Type paramType, Type resultType)) {
+            paramTypeObjs.add(paramType);
+            currentType = resultType;
+        }
+        Type returnTypeObj = currentType;
+        
+        if (paramTypeObjs.size() == 1) {
+            String paramJvmType = paramTypeObjs.get(0).toJvmType();
+            String returnJvmType = returnTypeObj.toJvmType();
+            String descriptor = "(" + paramJvmType + ")" + returnJvmType;
+            
+            Handle handle = new Handle(
+                Opcodes.H_INVOKESTATIC,
+                className,
+                methodName,
+                descriptor,
+                false
+            );
+            
+            String boxedParamType = boxedJvmType(paramTypeObjs.get(0));
+            String boxedReturnType = boxedJvmType(returnTypeObj);
+            
+            mv.visitInvokeDynamicInsn(
+                "apply",
+                "()Ljava/util/function/Function;",
+                new Handle(
+                    Opcodes.H_INVOKESTATIC,
+                    "java/lang/invoke/LambdaMetafactory",
+                    "metafactory",
+                    "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;",
+                    false
+                ),
+                org.objectweb.asm.Type.getType("(Ljava/lang/Object;)Ljava/lang/Object;"),
+                handle,
+                org.objectweb.asm.Type.getType("(" + boxedParamType + ")" + boxedReturnType)
+            );
+        } else {
+            throw new RuntimeException("Multi-parameter function wrapping not yet implemented: " + funcName);
+        }
+    }
+    
+    private String boxedJvmType(Type type) {
+        return switch (type) {
+            case Type.TInt() -> "Ljava/lang/Integer;";
+            case Type.TDouble() -> "Ljava/lang/Double;";
+            case Type.TBool() -> "Ljava/lang/Boolean;";
+            default -> type.toJvmType();
+        };
+    }
+    
+    private void wrapLambdaAsObject(String methodName, Type funcType) {
+        Type currentType = funcType;
+        List<Type> paramTypeObjs = new ArrayList<>();
+        
+        while (currentType instanceof Type.TFun(Type paramType, Type resultType)) {
+            paramTypeObjs.add(paramType);
+            currentType = resultType;
+        }
+        Type returnTypeObj = currentType;
+        
+        if (paramTypeObjs.size() == 1) {
+            String paramJvmType = paramTypeObjs.get(0).toJvmType();
+            String returnJvmType = returnTypeObj.toJvmType();
+            String descriptor = "(" + paramJvmType + ")" + returnJvmType;
+            
+            Handle handle = new Handle(
+                Opcodes.H_INVOKESTATIC,
+                className,
+                methodName,
+                descriptor,
+                false
+            );
+            
+            String boxedParamType = boxedJvmType(paramTypeObjs.get(0));
+            String boxedReturnType = boxedJvmType(returnTypeObj);
+            
+            mv.visitInvokeDynamicInsn(
+                "apply",
+                "()Ljava/util/function/Function;",
+                new Handle(
+                    Opcodes.H_INVOKESTATIC,
+                    "java/lang/invoke/LambdaMetafactory",
+                    "metafactory",
+                    "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;",
+                    false
+                ),
+                org.objectweb.asm.Type.getType("(Ljava/lang/Object;)Ljava/lang/Object;"),
+                handle,
+                org.objectweb.asm.Type.getType("(" + boxedParamType + ")" + boxedReturnType)
+            );
+        } else {
+            throw new RuntimeException("Multi-parameter lambda wrapping not yet implemented");
         }
     }
 

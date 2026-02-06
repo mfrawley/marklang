@@ -1,0 +1,10 @@
+# Expected: [2, 4, 6]
+fn map (f: 'a -> 'b) (lst: list<'a>): list<'b> =
+  match lst with
+  | [] -> []
+  | hd :: tl -> f hd :: map f tl
+  in
+
+fn twice (x: int): int = x * 2 in
+
+map twice [1, 2, 3]

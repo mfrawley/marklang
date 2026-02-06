@@ -1,0 +1,6 @@
+# Expected: [2, 4, 6]
+import List
+
+fn twice x = x * 2 in
+
+List.map twice [1, 2, 3]

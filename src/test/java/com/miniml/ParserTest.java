@@ -200,4 +200,34 @@ class ParserTest {
         assertTrue(app.func() instanceof QualifiedVar);
         assertEquals(1, app.args().size());
     }
+    
+    @Test
+    void testLambdaSingleParam() {
+        Expr expr = parse("fun x -> x + 1");
+        assertTrue(expr instanceof Lambda);
+        Lambda lambda = (Lambda) expr;
+        assertEquals(1, lambda.params().size());
+        assertEquals("x", lambda.params().get(0));
+        assertTrue(lambda.body() instanceof BinOp);
+    }
+    
+    @Test
+    void testLambdaMultipleParams() {
+        Expr expr = parse("fun x y -> x + y");
+        assertTrue(expr instanceof Lambda);
+        Lambda lambda = (Lambda) expr;
+        assertEquals(2, lambda.params().size());
+        assertEquals("x", lambda.params().get(0));
+        assertEquals("y", lambda.params().get(1));
+    }
+    
+    @Test
+    void testNamedFunctionExpression() {
+        Expr expr = parse("fn fact n = if n == 0 then 1 else n * fact (n - 1) in fact 5");
+        assertTrue(expr instanceof LetRec);
+        LetRec letrec = (LetRec) expr;
+        assertEquals("fact", letrec.name());
+        assertEquals(1, letrec.params().size());
+        assertEquals("n", letrec.params().get(0));
+    }
 }

@@ -1,0 +1,4 @@
+# Expected: 4
+import List
+
+List.length [1, 2, 3, 4]

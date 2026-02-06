@@ -103,12 +103,12 @@ public sealed interface Type {
             case TInt t -> "I";
             case TDouble t -> "D";
             case TString t -> "Ljava/lang/String;";
-            case TBool t -> "I";
+            case TBool t -> "Z";
             case TUnit t -> "Lcom/miniml/Unit;";
             case TList t -> "Ljava/util/List;";
             case TResult t -> "Lcom/miniml/Result;";
-            case TVar t -> throw new IllegalStateException("Unresolved type variable '" + t.name() + "' during code generation");
-            case TNumeric t -> throw new IllegalStateException("Unresolved numeric type variable '" + t.name() + "' during code generation");
+            case TVar t -> "Ljava/lang/Object;";
+            case TNumeric t -> "Ljava/lang/Object;";
             case TFun t -> "Ljava/lang/Object;";
             case TScheme(List<String> vars, Type innerType) -> innerType.toJvmType();
             case TApp(String name, List<Type> args) -> "Lcom/miniml/" + name + ";";

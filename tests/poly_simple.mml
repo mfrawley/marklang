@@ -1,0 +1,3 @@
+# Expected: 42
+fn identity (x: 'a): 'a = x in
+identity 42

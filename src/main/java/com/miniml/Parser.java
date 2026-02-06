@@ -89,7 +89,17 @@ public class Parser {
     }
     
     private void skipType() {
-        if (peek().type == Token.Type.IDENT) {
+        skipBaseType();
+        if (peek().type == Token.Type.ARROW) {
+            advance();
+            skipType();
+        }
+    }
+
+    private void skipBaseType() {
+        if (peek().type == Token.Type.TYPE_VAR) {
+            advance();
+        } else if (peek().type == Token.Type.IDENT) {
             String name = advance().value;
             if (name.equals("list") && peek().type == Token.Type.LT) {
                 advance();
@@ -97,6 +107,12 @@ public class Parser {
                 if (peek().type == Token.Type.GT) {
                     advance();
                 }
+            }
+        } else if (peek().type == Token.Type.LPAREN) {
+            advance();
+            skipType();
+            if (peek().type == Token.Type.RPAREN) {
+                advance();
             }
         } else if (peek().type == Token.Type.TYPE_INT ||
                    peek().type == Token.Type.TYPE_DOUBLE ||
@@ -212,7 +228,21 @@ public class Parser {
     }
     
     private Type parseType() {
+        Type left = parseBaseType();
+        if (peek().type == Token.Type.ARROW) {
+            advance();
+            Type right = parseType();
+            return new Type.TFun(left, right);
+        }
+        return left;
+    }
+
+    private Type parseBaseType() {
         Token.Type tokenType = peek().type;
+        if (tokenType == Token.Type.TYPE_VAR) {
+            String name = advance().value;
+            return new Type.TVar(name);
+        }
         if (tokenType == Token.Type.IDENT) {
             String name = advance().value;
             if (name.equals("list") && peek().type == Token.Type.LT) {
@@ -223,16 +253,20 @@ public class Parser {
             }
             return new Type.TVar(name);
         }
+        if (tokenType == Token.Type.LPAREN) {
+            advance();
+            Type inner = parseType();
+            expect(Token.Type.RPAREN);
+            return inner;
+        }
         advance();
-        Type baseType = switch (tokenType) {
+        return switch (tokenType) {
             case TYPE_INT -> new Type.TInt();
             case TYPE_DOUBLE -> new Type.TDouble();
             case TYPE_STRING -> new Type.TString();
             case TYPE_BOOL -> new Type.TBool();
             default -> throw new RuntimeException("Expected type annotation");
         };
-        
-        return baseType;
     }
 
     private com.miniml.expr.Expr expr() {
@@ -241,6 +275,9 @@ public class Parser {
         }
         if (match(Token.Type.FN)) {
             return fnExpr();
+        }
+        if (match(Token.Type.FUN)) {
+            return lambdaExpr();
         }
         if (match(Token.Type.IF)) {
             return ifExpr();
@@ -290,14 +327,53 @@ public class Parser {
     private com.miniml.expr.Expr fnExpr() {
         String name = expect(Token.Type.IDENT).value;
         List<String> params = new ArrayList<>();
-        while (peek().type == Token.Type.IDENT) {
-            params.add(advance().value);
+        while (peek().type == Token.Type.IDENT || peek().type == Token.Type.LPAREN) {
+            if (peek().type == Token.Type.LPAREN) {
+                advance();
+                String paramName = expect(Token.Type.IDENT).value;
+                if (peek().type == Token.Type.COLON) {
+                    advance();
+                    parseType();
+                }
+                expect(Token.Type.RPAREN);
+                params.add(paramName);
+            } else {
+                params.add(advance().value);
+            }
+        }
+        if (peek().type == Token.Type.COLON) {
+            advance();
+            parseType();
         }
         expect(Token.Type.ASSIGN);
         com.miniml.expr.Expr value = expr();
         expect(Token.Type.IN);
         com.miniml.expr.Expr body = expr();
         return new LetRec(name, params, value, body);
+    }
+
+    private com.miniml.expr.Expr lambdaExpr() {
+        List<String> params = new ArrayList<>();
+        while (peek().type == Token.Type.IDENT || peek().type == Token.Type.LPAREN) {
+            if (peek().type == Token.Type.LPAREN) {
+                advance();
+                String paramName = expect(Token.Type.IDENT).value;
+                if (peek().type == Token.Type.COLON) {
+                    advance();
+                    parseType();
+                }
+                expect(Token.Type.RPAREN);
+                params.add(paramName);
+            } else {
+                if (peek().type == Token.Type.ARROW) {
+                    break;
+                }
+                params.add(advance().value);
+            }
+        }
+        expect(Token.Type.ARROW);
+        com.miniml.expr.Expr body = expr();
+        return new Lambda(params, body);
     }
 
     private com.miniml.expr.Expr ifExpr() {

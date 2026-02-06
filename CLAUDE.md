@@ -139,9 +139,10 @@ Pattern matching compiles to:
 ## Known Limitations
 
 1. **Function definitions**: Only `fn name params = body in expr` syntax supported. Top-level `let name params = body` is not supported (requires `fn`).
-2. **Type annotations**: Not yet supported in surface syntax.
-3. **Polymorphism**: Limited support for polymorphic recursion.
-4. **Pattern matching**: Nested patterns not fully supported for Result types.
+2. **Type annotations**: Type variables ('a, 'b) are supported via Proposal 002.
+3. **Polymorphism**: Uses type erasure (Proposal 003) - type variables compile to `Object` with boxing/unboxing at call sites.
+4. **First-class functions**: Functions used as values (not directly called) need to be wrapped in Java `Function` objects for higher-order function support.
+5. **Pattern matching**: Nested patterns not fully supported for Result types.
 
 ## Error Reporting
 

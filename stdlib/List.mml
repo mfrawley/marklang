@@ -1,0 +1,27 @@
+fn map (f: 'a -> 'b) (lst: list<'a>): list<'b> =
+  match lst with
+  | [] -> []
+  | hd :: tl -> f hd :: map f tl;
+
+fn filter (pred: 'a -> bool) (lst: list<'a>): list<'a> =
+  match lst with
+  | [] -> []
+  | hd :: tl -> if pred hd then hd :: filter pred tl else filter pred tl;
+
+fn length (lst: list<'a>): int =
+  match lst with
+  | [] -> 0
+  | hd :: tl -> 1 + length tl;
+
+#fn fold_left (f: 'acc -> 'elem -> 'acc) (init: 'acc) (lst: list<'elem>): 'acc =
+#  match lst with
+#  | [] -> init
+#  | hd :: tl -> fold_left f (f init hd) tl;
+
+#fn rev (lst: list<'a>): list<'a> =
+#  fold_left (fun acc x -> x :: acc) [] lst;
+
+fn append (xs: list<'a>) (ys: list<'a>): list<'a> =
+  match xs with
+  | [] -> ys
+  | hd :: tl -> hd :: append tl ys;

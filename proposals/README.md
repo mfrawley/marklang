@@ -79,4 +79,6 @@ Keep implementation details minimal unless they affect user-observable behavior 
 | Number | Title | Status |
 |--------|-------|--------|
 | 001 | [Java Foreign Types](001-java-foreign-types.md) | Implemented |
-| 002 | [Polymorphic Type Syntax](002-polymorphic-type-syntax.md) | Proposed |
+| 002 | [Polymorphic Type Syntax](002-polymorphic-type-syntax.md) | Implemented |
+| 003 | [Type Erasure for Code Generation](003-type-erasure-codegen.md) | Implemented |
+| 004 | [Currying and Partial Application](004-currying-and-partial-application.md) | Proposed |

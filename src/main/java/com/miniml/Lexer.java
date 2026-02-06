@@ -147,6 +147,8 @@ public class Lexer {
                     return new Token(Token.Type.GE, ">=", startLine, startColumn);
                 }
                 return new Token(Token.Type.GT, ">", startLine, startColumn);
+            case '\'':
+                return typeVariable(startLine, startColumn);
             default:
                 throw new LexerException("Unexpected character '" + c + "'", filename, startLine, startColumn);
         }
@@ -183,6 +185,7 @@ public class Lexer {
         Token.Type type = switch (text) {
             case "let" -> Token.Type.LET;
             case "fn" -> Token.Type.FN;
+            case "fun" -> Token.Type.FUN;
             case "in" -> Token.Type.IN;
             case "if" -> Token.Type.IF;
             case "then" -> Token.Type.THEN;
@@ -205,6 +208,21 @@ public class Lexer {
         };
 
         return new Token(type, text, startLine, startColumn);
+    }
+
+    private Token typeVariable(int startLine, int startColumn) {
+        if (pos >= source.length() || !Character.isLowerCase(source.charAt(pos))) {
+            throw new LexerException("Type variable must start with lowercase letter after '", filename, startLine, startColumn);
+        }
+
+        int start = pos;
+        while (pos < source.length() && (Character.isLetterOrDigit(source.charAt(pos)) || source.charAt(pos) == '_')) {
+            pos++;
+            column++;
+        }
+
+        String name = source.substring(start, pos);
+        return new Token(Token.Type.TYPE_VAR, name, startLine, startColumn);
     }
 
     private Token string(int startLine, int startColumn) {

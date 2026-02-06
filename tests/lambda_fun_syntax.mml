@@ -1,0 +1,3 @@
+# Expected: 10
+fn apply f x = f x in
+apply (fun y -> y + 3) 7
