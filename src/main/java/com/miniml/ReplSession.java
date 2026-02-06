@@ -75,10 +75,8 @@ public class ReplSession {
             
             Map<String, Type> moduleExports = inference.getEnvironment();
             for (Map.Entry<String, Type> entry : moduleExports.entrySet()) {
-                if (!entry.getKey().contains(".")) {
-                    typeEnvironment.put(entry.getKey(), entry.getValue());
-                }
-                typeEnvironment.put(fullModuleName + "." + entry.getKey(), entry.getValue());
+                String key = entry.getKey();
+                typeEnvironment.put(key, entry.getValue());
             }
         }
         
@@ -132,21 +130,47 @@ public class ReplSession {
         Parser parser = new Parser(tokens);
         Expr expr = parser.parseExpr();
         
+        Map<String, Type> localEnv = new HashMap<>(typeEnvironment);
+        
         TypeInference inference = new TypeInference();
         inference.setJavaImports(javaImports);
         for (String importName : imports) {
             inference.loadModuleInterface(importName);
         }
-        Type type = inference.infer(new HashMap<>(typeEnvironment), expr);
+        Type type = inference.infer(localEnv, expr);
         type = inference.fullyResolve(type);
         
-        Object value = expr.eval(environment);
-        
-        System.out.println(formatValue(value));
-        
-        String className = "Repl$Expr" + evalCount;
+        String className = "Repl$Expr" + evalCount++;
         Compiler compiler = new Compiler(className, inference.getTypeMap(), inference.getInstantiations());
+        compiler.setLetRecTypes(inference.getLetRecTypes());
         byte[] bytecode = compiler.compile(expr);
+        
+        classLoader.defineClass(className, bytecode);
+        Class<?> clazz = classLoader.loadClass(className);
+        java.lang.reflect.Method mainMethod = clazz.getMethod("main", String[].class);
+        
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        java.io.PrintStream oldOut = System.out;
+        System.setOut(new java.io.PrintStream(baos));
+        
+        Object value = null;
+        try {
+            mainMethod.invoke(null, (Object) new String[0]);
+            String output = baos.toString().trim();
+            System.setOut(oldOut);
+            if (!output.isEmpty()) {
+                System.out.println(output);
+            } else if (type instanceof Type.TFun) {
+                System.out.println("<function : " + type + ">");
+            }
+        } catch (Exception e) {
+            System.setOut(oldOut);
+            if (type instanceof Type.TFun) {
+                System.out.println("<function : " + type + ">");
+            } else {
+                throw new RuntimeException("Execution error: " + e.getMessage(), e);
+            }
+        }
         
         return new EvalResult(value, type, bytecode, false);
     }

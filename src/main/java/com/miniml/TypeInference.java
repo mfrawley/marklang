@@ -250,6 +250,12 @@ public class TypeInference {
             
             case QualifiedVar(String moduleName, String memberName) -> {
                 String qualifiedName = moduleName + "." + memberName;
+                if (localEnv.containsKey(qualifiedName)) {
+                    yield instantiate(localEnv.get(qualifiedName));
+                }
+                if (localEnv.containsKey(memberName)) {
+                    yield instantiate(localEnv.get(memberName));
+                }
                 if (env.containsKey(qualifiedName)) {
                     yield instantiate(env.get(qualifiedName));
                 }
